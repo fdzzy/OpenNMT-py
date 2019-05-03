@@ -47,7 +47,7 @@ def build_save_dataset(corpus_type, fields, opt):
     for i, tsv_data_lines in enumerate(data_shards):
         logger.info("Building shard %d." % i)
 
-        dataset = inputters.TabularDataset(tsv_data_lines, fields, separator='\t', sort_key=persona_text_sort_key)
+        dataset = inputters.TabularDataset(tsv_data_lines, fields, separator='\t')
         input_path = "{:s}.{:s}.{:d}.pt".format(opt.save_data, corpus_type, i)
         output_dataset_paths.append(input_path)
         uid_set.update([int(example.uid) for example in dataset.examples])
