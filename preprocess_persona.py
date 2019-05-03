@@ -19,7 +19,7 @@ from onmt.utils.misc import split_corpus
 import onmt.inputters as inputters
 import onmt.opts as opts
 from onmt.utils.parse import ArgumentParser
-from onmt.inputters.text_dataset import text_sort_key, persona_text_sort_key, TextMultiField
+from onmt.inputters.text_dataset import text_sort_key, TextMultiField
 
 def check_existing_pt_files(opt):
     """ Check if there are existing .pt files to avoid overwriting them """
