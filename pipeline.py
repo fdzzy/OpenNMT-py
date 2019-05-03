@@ -4,11 +4,12 @@ import sentencepiece as spm
 from ww import f
 
 Encoding = "utf-8"
-ONMT="/home/zhiyingz/work/generation/github/OpenNMT-py"
-WORK_DIR = "/home/zhiyingz/work/generation/github/OpenNMT-py/experiments"
+ONMT="."
+WORK_DIR = "./experiments"
 
 class ExperimentType:
     DEDUG = -1
+    DEBUG_PERSONA = -2
     OPEN_SUB_TITLES_TOK_BPE = 0
     TWITTER_TOK_BPE = 1
     TWITTER_TOK_BPE_FILTER = 2
@@ -19,13 +20,18 @@ class ExperimentType:
     CHAT_INDEX_CMD = 7
     CHAT_INDEX_CMD_TRANS_BIG = 8
 
-CurrentExperimentType = ExperimentType.DEDUG
+#CurrentExperimentType = ExperimentType.DEDUG
+CurrentExperimentType = ExperimentType.DEBUG_PERSONA
 #CurrentExperimentType = ExperimentType.CHAT_INDEX_CMD_TRANS_BIG
 
 if CurrentExperimentType == ExperimentType.DEDUG:
     EXP_NAME = "debug"
     DATA_DIR = ""
     VOCAB_SIZE = 80000
+elif CurrentExperimentType == ExperimentType.DEBUG_PERSONA:
+    EXP_NAME = "debug_persona"
+    DATA_DIR = ""
+    VOCAB_SIZE = 10000
 elif CurrentExperimentType == ExperimentType.OPEN_SUB_TITLES_TOK_BPE:
     EXP_NAME = "OpenSubTitles_tok_bpe"
     DATA_DIR = "/home/zhiyingz/work/generation/data/OpenNMT_OpenSubtitles/opensub_qa_en"
@@ -173,6 +179,14 @@ def s1b_preprocess():
         )
     run_cmd(cmd)
 
+def preprocess_persona():
+    cmd = f("python {ONMT}/preprocess_persona.py "
+            "--train {OUT}/data/train.txt --valid {OUT}/data/valid.txt "
+            "--save_data {OUT}/data/processed --log_file {OUT}/log/preprocess.log "
+            "--words_min_frequency 10 --max_vocab_size 100000 --share_vocab"
+        )
+    run_cmd(cmd)
+
 def _get_gpu_params(visible_gpus):
     #TODO: check if it works with no GPUs
     gpu_devices_str = ','.join([str(x) for x in visible_gpus])
@@ -263,16 +277,17 @@ def average_models(model_start, model_step, model_count):
     run_cmd(cmd)
 
 if __name__ == '__main__':
-    visible_gpus = [2,3]
+    visible_gpus = []#[2,3]
     #s0_sanity_check()
     #s0a_ensure_dir_existence()
     #s1a_preprocess_inputs_bpe_merge()
     #s1a_preprocess_inputs_spm_merge()
     #s1b_preprocess()
+    preprocess_persona()
     #remove_log_file()
     #s2_train()
     #s2_train_transformer_large(train_from=-1, visible_gpus=visible_gpus)
-    s3_translate_test(model_step=28000)
+    #s3_translate_test(model_step=28000)
     #s3_translate_test_interactive(model_step=28000)
     #s3_translate_valid(model_step=160000)
     #s3_translate_test(model_step=160000)

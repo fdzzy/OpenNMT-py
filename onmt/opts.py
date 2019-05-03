@@ -18,6 +18,7 @@ def model_opts(parser):
     These options are passed to the construction of the model.
     Be careful with these as they will be used during translation.
     """
+    parser.add('--persona_model', '-persona_model', action='store_true', help="Whether this is a persona model")
 
     # Embedding Options
     group = parser.add_argument_group('Model-Embeddings')
@@ -179,6 +180,72 @@ def model_opts(parser):
     group.add('--loss_scale', '-loss_scale', type=float, default=0,
               help="For FP16 training, the static loss scale to use. If not "
                    "set, the loss scale is dynamically computed.")
+
+
+def preprocess_persona_opts(parser):
+    """ Pre-processing persona data options """
+    # Data options
+    group = parser.add_argument_group('Data')
+    group.add('--train', '-train', required=True,
+              help="Path to the training data")
+    group.add('--valid', '-valid', required=True,
+              help="Path to the validation data")
+    group.add('--save_data', '-save_data', required=True,
+              help="Output file for the prepared data")
+    group.add('--shard_size', '-shard_size', type=int, default=1000000,
+              help="Divide src_corpus and tgt_corpus into "
+                   "smaller multiple src_copus and tgt corpus files, then "
+                   "build shards, each shard will have "
+                   "opt.shard_size samples except last shard. "
+                   "shard_size=0 means no segmentation "
+                   "shard_size>0 means segment dataset into multiple shards, "
+                   "each shard has shard_size samples")
+
+    # TODO: probably reuse the following options with preprocess_opts
+    # Dictionary options, for text corpus
+    group = parser.add_argument_group('Vocab')
+    group.add('--max_vocab_size', '-max_vocab_size', type=int, default=80000,
+              help="Max size of the vocabulary")
+    group.add('--vocab_size_multiple', '-vocab_size_multiple',
+              type=int, default=1,
+              help="Make the vocabulary size a multiple of this value")
+    group.add('--words_min_frequency',
+              '-words_min_frequency', type=int, default=0)
+    group.add('--dynamic_dict', '-dynamic_dict', action='store_true',
+              help="Create dynamic dictionaries")
+
+    # Truncation options, for text corpus
+    group = parser.add_argument_group('Pruning')
+    group.add('--src_seq_length', '-src_seq_length', type=int, default=50,
+              help="Maximum source sequence length")
+    group.add('--src_seq_length_trunc', '-src_seq_length_trunc',
+              type=int, default=None,
+              help="Truncate source sequence length.")
+    group.add('--tgt_seq_length', '-tgt_seq_length', type=int, default=50,
+              help="Maximum target sequence length to keep.")
+    group.add('--tgt_seq_length_trunc', '-tgt_seq_length_trunc',
+              type=int, default=None,
+              help="Truncate target sequence length.")
+    group.add('--lower', '-lower', action='store_true', help='lowercase data')
+    group.add('--filter_valid', '-filter_valid', action='store_true',
+              help='Filter validation data by src and/or tgt length')
+
+    # Data processing options
+    group = parser.add_argument_group('Random')
+    group.add('--shuffle', '-shuffle', type=int, default=0,
+              help="Shuffle data")
+    group.add('--seed', '-seed', type=int, default=3435,
+              help="Random seed")
+
+    group = parser.add_argument_group('Logging')
+    group.add('--report_every', '-report_every', type=int, default=100000,
+              help="Report status every this many sentences")
+    group.add('--log_file', '-log_file', type=str, default="",
+              help="Output logs to a file under this path.")
+    group.add('--log_file_level', '-log_file_level', type=str,
+              action=StoreLoggingLevelAction,
+              choices=StoreLoggingLevelAction.CHOICES,
+              default="0")
 
 
 def preprocess_opts(parser):
