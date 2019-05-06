@@ -17,7 +17,7 @@ class NMTModel(nn.Module):
         self.encoder = encoder
         self.decoder = decoder
 
-    def forward(self, src, tgt, lengths, bptt=False):
+    def forward(self, src, tgt, lengths, bptt=False, uid=None):
         """Forward propagate a `src` and `tgt` pair for training.
         Possible initialized with a beginning decoder state.
 
@@ -43,5 +43,5 @@ class NMTModel(nn.Module):
         if bptt is False:
             self.decoder.init_state(src, memory_bank, enc_state)
         dec_out, attns = self.decoder(tgt, memory_bank,
-                                      memory_lengths=lengths)
+                                      memory_lengths=lengths, uid=uid)
         return dec_out, attns

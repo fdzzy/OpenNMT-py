@@ -19,10 +19,13 @@ class ExperimentType:
     CHAT_INDEX = 6
     CHAT_INDEX_CMD = 7
     CHAT_INDEX_CMD_TRANS_BIG = 8
+    TWITTER_TOK_BPE_CMD_NO_UID_TRANS_BIG = 9
+    TWITTER_TOK_BPE_CMD_UID_TRANS_BIG = 10
 
 #CurrentExperimentType = ExperimentType.DEDUG
-CurrentExperimentType = ExperimentType.DEBUG_PERSONA
+#CurrentExperimentType = ExperimentType.DEBUG_PERSONA
 #CurrentExperimentType = ExperimentType.CHAT_INDEX_CMD_TRANS_BIG
+CurrentExperimentType = ExperimentType.TWITTER_TOK_BPE_CMD_NO_UID_TRANS_BIG
 
 if CurrentExperimentType == ExperimentType.DEDUG:
     EXP_NAME = "debug"
@@ -51,6 +54,14 @@ elif CurrentExperimentType == ExperimentType.CHAT_INDEX_CMD:
 elif CurrentExperimentType == ExperimentType.CHAT_INDEX_CMD_TRANS_BIG:
     EXP_NAME = "index_bpe_cmd_transformer_big"
     DATA_DIR = "/home/zhiyingz/work/generation/data/index"
+    VOCAB_SIZE = 80000
+elif CurrentExperimentType == ExperimentType.TWITTER_TOK_BPE_CMD_NO_UID_TRANS_BIG:
+    EXP_NAME = "twitter_tok_bpe_cmd_no_uid_trans_big"
+    DATA_DIR = ""
+    VOCAB_SIZE = 80000
+elif CurrentExperimentType == ExperimentType.TWITTER_TOK_BPE_CMD_UID_TRANS_BIG:
+    EXP_NAME = "twitter_tok_bpe_cmd_uid_trans_big"
+    DATA_DIR = ""
     VOCAB_SIZE = 80000
 
 
@@ -183,7 +194,7 @@ def preprocess_persona():
     cmd = f("python {ONMT}/preprocess_persona.py "
             "--train {OUT}/data/train.txt --valid {OUT}/data/valid.txt "
             "--save_data {OUT}/data/processed --log_file {OUT}/log/preprocess.log "
-            "--words_min_frequency 10 --max_vocab_size 100000 --share_vocab"
+            "--words_min_frequency 10 --max_vocab_size 100000"
         )
     run_cmd(cmd)
 
@@ -222,7 +233,7 @@ def s2_train_transformer_large(train_from=-1, visible_gpus=[]):
     print("Step 2: Train")
     CUDA_VISIBLE_str, GPU_PARAMS_str = _get_gpu_params(visible_gpus)
     cmd = f("{CUDA_VISIBLE_str} python {ONMT}/train.py -data {OUT}/data/processed " +
-        "-save_model {OUT}/models/{EXP_NAME} " +
+        "-save_model {OUT}/models/{EXP_NAME} --master_ip localhost --master_port 10012 " +
         "--keep_checkpoint 5 --layers 6 --rnn_size 1024 -word_vec_size 1024 " +
         "--share_decoder_embeddings --share_embeddings " +
         "-encoder_type transformer -decoder_type transformer -position_encoding -transformer_ff 4096 -heads 16 " +
@@ -232,6 +243,26 @@ def s2_train_transformer_large(train_from=-1, visible_gpus=[]):
         "-max_grad_norm 0 -param_init 0 -param_init_glorot "
         "-label_smoothing 0.1 -valid_steps 2000 -save_checkpoint_steps 2000 " +
         "{GPU_PARAMS_str} " +
+        "--tensorboard --tensorboard_log_dir {OUT}/log --log_file {OUT}/log/log_file.txt")
+    if train_from > 0:
+        cmd += f(" --train_from {OUT}/models/{EXP_NAME}_step_{train_from}.pt")
+    run_cmd(cmd)
+
+def s2_train_persona_transformer_large(train_from=-1, visible_gpus=[], uid_vocab_size=0, uid_emb_size=0):
+    print("Step 2: Train")
+    CUDA_VISIBLE_str, GPU_PARAMS_str = _get_gpu_params(visible_gpus)
+    cmd = f("{CUDA_VISIBLE_str} python {ONMT}/train.py -data {OUT}/data/processed "
+        "-save_model {OUT}/models/{EXP_NAME} --master_ip localhost --master_port 10012 "
+        "--keep_checkpoint 5 --layers 6 --rnn_size 1024 -word_vec_size 1024 "
+        "--share_decoder_embeddings --share_embeddings "
+        "-encoder_type transformer -decoder_type transformer -position_encoding -transformer_ff 4096 -heads 16 "
+        "-train_steps 10000000 -max_generator_batches 2 -dropout 0.3 "
+        "-batch_size 2000 -batch_type tokens -normalization tokens -accum_count 4 "
+        "-optim adam -adam_beta2 0.997 -decay_method noam -warmup_steps 8000 -learning_rate 2 "
+        "-max_grad_norm 0 -param_init 0 -param_init_glorot "
+        "-label_smoothing 0.1 -valid_steps 2000 -save_checkpoint_steps 2000 "
+        "{GPU_PARAMS_str} "
+        "--uid_vocab_size {uid_vocab_size} --uid_embedding_size {uid_emb_size} "
         "--tensorboard --tensorboard_log_dir {OUT}/log --log_file {OUT}/log/log_file.txt")
     if train_from > 0:
         cmd += f(" --train_from {OUT}/models/{EXP_NAME}_step_{train_from}.pt")
@@ -283,10 +314,11 @@ if __name__ == '__main__':
     #s1a_preprocess_inputs_bpe_merge()
     #s1a_preprocess_inputs_spm_merge()
     #s1b_preprocess()
-    preprocess_persona()
+    #preprocess_persona()
     #remove_log_file()
     #s2_train()
     #s2_train_transformer_large(train_from=-1, visible_gpus=visible_gpus)
+    s2_train_persona_transformer_large(train_from=-1, visible_gpus=visible_gpus, uid_vocab_size=2789420, uid_emb_size=32)
     #s3_translate_test(model_step=28000)
     #s3_translate_test_interactive(model_step=28000)
     #s3_translate_valid(model_step=160000)

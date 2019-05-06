@@ -331,7 +331,8 @@ class Trainer(object):
                 # 2. F-prop all but generator.
                 if self.accum_count == 1:
                     self.optim.zero_grad()
-                outputs, attns = self.model(src, tgt, src_lengths, bptt=bptt)
+                uid = batch.uid if hasattr(batch, "uid") else None
+                outputs, attns = self.model(src, tgt, src_lengths, bptt=bptt, uid=uid)
                 bptt = True
 
                 # 3. Compute loss.

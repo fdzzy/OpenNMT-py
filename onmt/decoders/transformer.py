@@ -121,10 +121,17 @@ class TransformerDecoder(DecoderBase):
 
     def __init__(self, num_layers, d_model, heads, d_ff,
                  copy_attn, self_attn_type, dropout, embeddings,
-                 max_relative_positions):
+                 max_relative_positions, uid_vocab_size=0, uid_embedding_size=0, uid_emb_concat_type="mlp"):
         super(TransformerDecoder, self).__init__()
 
         self.embeddings = embeddings
+
+        if uid_vocab_size > 0 and uid_embedding_size > 0:
+            self.uid_emb_concat_type = uid_emb_concat_type
+            self.uid_embedding = nn.Embedding(uid_vocab_size, uid_embedding_size, padding_idx=None)
+            #TODO: maybe consider "concat" as well
+            if self.uid_emb_concat_type == "mlp":
+                self.uid_mlp = nn.Sequential(nn.Linear(self.embeddings.embedding_size + uid_embedding_size, self.embeddings.embedding_size), nn.ReLU())
 
         # Decoder State
         self.state = {}
@@ -153,7 +160,9 @@ class TransformerDecoder(DecoderBase):
             opt.self_attn_type,
             opt.dropout,
             embeddings,
-            opt.max_relative_positions)
+            opt.max_relative_positions,
+            opt.uid_vocab_size,
+            opt.uid_embedding_size)
 
     def init_state(self, src, memory_bank, enc_hidden):
         """Initialize decoder state."""
@@ -189,6 +198,14 @@ class TransformerDecoder(DecoderBase):
 
         emb = self.embeddings(tgt, step=step)
         assert emb.dim() == 3  # len x batch x embedding_dim
+
+        uid_batch = kwargs.get("uid", None) # [batch]
+        if uid_batch is not None:
+            uid_emb_batch = self.uid_embedding(uid_batch) # [batch, uid_emb_dim]
+            uid_emb_batch = uid_emb_batch.unsqueeze(0).repeat(tgt_len, 1, 1) # [len, batch, uid_emb_dim]
+            emb = torch.cat((emb, uid_emb_batch), dim=-1)
+            if self.uid_emb_concat_type == "mlp":
+                emb = self.uid_mlp(emb)
 
         output = emb.transpose(0, 1).contiguous()
         src_memory_bank = memory_bank.transpose(0, 1).contiguous()

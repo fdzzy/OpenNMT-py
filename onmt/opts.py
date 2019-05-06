@@ -30,6 +30,10 @@ def model_opts(parser):
               help='Word embedding size for tgt.')
     group.add('--word_vec_size', '-word_vec_size', type=int, default=-1,
               help='Word embedding size for src and tgt.')
+    group.add('--uid_vocab_size', '-uid_vocab_size', type=int, default=0,
+              help='Total persona user id size')
+    group.add('--uid_embedding_size', '-uid_embedding_size', type=int, default=0,
+              help='Embedding dimmension size for persona user id')
 
     group.add('--share_decoder_embeddings', '-share_decoder_embeddings',
               action='store_true',
