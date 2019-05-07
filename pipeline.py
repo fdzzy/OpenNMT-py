@@ -7,65 +7,36 @@ Encoding = "utf-8"
 ONMT="."
 WORK_DIR = "./experiments"
 
-class ExperimentType:
-    DEDUG = -1
-    DEBUG_PERSONA = -2
-    OPEN_SUB_TITLES_TOK_BPE = 0
-    TWITTER_TOK_BPE = 1
-    TWITTER_TOK_BPE_FILTER = 2
-    TWITTER_TOK_BPE_FILTER_LEN_CMD = 3
-    TWITTER_TOK_BPE_FILTER_LEN_CMD_TRANS = 4
-    TWITTER_TOK_BPE_FILTER_LEN_CMD_TRANS_BIG = 5
-    CHAT_INDEX = 6
-    CHAT_INDEX_CMD = 7
-    CHAT_INDEX_CMD_TRANS_BIG = 8
-    TWITTER_TOK_BPE_CMD_NO_UID_TRANS_BIG = 9
-    TWITTER_TOK_BPE_CMD_UID_TRANS_BIG = 10
+class ExperimentSetting(object):
+    def __init__(self, name, data_dir="", vocab_size=80000):
+        self.name = name
+        self.datda_dir = data_dir
+        self.vocab_size = vocab_size
 
-#CurrentExperimentType = ExperimentType.DEDUG
-#CurrentExperimentType = ExperimentType.DEBUG_PERSONA
-#CurrentExperimentType = ExperimentType.CHAT_INDEX_CMD_TRANS_BIG
-CurrentExperimentType = ExperimentType.TWITTER_TOK_BPE_CMD_NO_UID_TRANS_BIG
+SETTINGS_LIST = [
+    ExperimentSetting("debug", vocab_size=80000),
+    ExperimentSetting("debug_persona", vocab_size=10000),
+    ExperimentSetting("debug_persona_rnn", vocab_size=10000),
+    ExperimentSetting("OpenSubTitles_tok_bpe", data_dir="/home/zhiyingz/work/generation/data/OpenNMT_OpenSubtitles/opensub_qa_en", vocab_size=32000),
+    ExperimentSetting("twitter_tok_bpe", data_dir="/home/zhiyingz/work/generation/data/twitter", vocab_size=80000),
+    ExperimentSetting("index_bpe", data_dir="/home/zhiyingz/work/generation/data/index"),
+    ExperimentSetting("index_bpe_cmd"),
+    ExperimentSetting("index_bpe_cmd_transformer_big", data_dir="/home/zhiyingz/work/generation/data/index"),
+    ExperimentSetting("twitter_tok_bpe_cmd_no_uid_trans_big"),
+    ExperimentSetting("twitter_tok_bpe_cmd_uid_trans_big")
+]
 
-if CurrentExperimentType == ExperimentType.DEDUG:
-    EXP_NAME = "debug"
-    DATA_DIR = ""
-    VOCAB_SIZE = 80000
-elif CurrentExperimentType == ExperimentType.DEBUG_PERSONA:
-    EXP_NAME = "debug_persona"
-    DATA_DIR = ""
-    VOCAB_SIZE = 10000
-elif CurrentExperimentType == ExperimentType.OPEN_SUB_TITLES_TOK_BPE:
-    EXP_NAME = "OpenSubTitles_tok_bpe"
-    DATA_DIR = "/home/zhiyingz/work/generation/data/OpenNMT_OpenSubtitles/opensub_qa_en"
-    VOCAB_SIZE = 32000
-elif CurrentExperimentType == ExperimentType.TWITTER_TOK_BPE:
-    EXP_NAME = "twitter_tok_bpe"
-    DATA_DIR = "/home/zhiyingz/work/generation/data/twitter"
-    VOCAB_SIZE = 80000
-elif CurrentExperimentType == ExperimentType.CHAT_INDEX:
-    EXP_NAME = "index_bpe"
-    DATA_DIR = "/home/zhiyingz/work/generation/data/index"
-    VOCAB_SIZE = -1
-elif CurrentExperimentType == ExperimentType.CHAT_INDEX_CMD:
-    EXP_NAME = "index_bpe_cmd"
-    DATA_DIR = ""
-    VOCAB_SIZE = 80000
-elif CurrentExperimentType == ExperimentType.CHAT_INDEX_CMD_TRANS_BIG:
-    EXP_NAME = "index_bpe_cmd_transformer_big"
-    DATA_DIR = "/home/zhiyingz/work/generation/data/index"
-    VOCAB_SIZE = 80000
-elif CurrentExperimentType == ExperimentType.TWITTER_TOK_BPE_CMD_NO_UID_TRANS_BIG:
-    EXP_NAME = "twitter_tok_bpe_cmd_no_uid_trans_big"
-    DATA_DIR = ""
-    VOCAB_SIZE = 80000
-elif CurrentExperimentType == ExperimentType.TWITTER_TOK_BPE_CMD_UID_TRANS_BIG:
-    EXP_NAME = "twitter_tok_bpe_cmd_uid_trans_big"
-    DATA_DIR = ""
-    VOCAB_SIZE = 80000
+EXP_NAME = "debug_persona_rnn"
+#EXP_NAME = "twitter_tok_bpe_cmd_no_uid_trans_big"
+#EXP_NAME = "twitter_tok_bpe_cmd_uid_trans_big"
 
 
 #====== EXPERIMENT BEGIN ======
+
+settings_dict = {setting.name : setting for setting in SETTINGS_LIST}
+CurrentSetting = settings_dict[EXP_NAME]
+DATA_DIR = CurrentSetting.datda_dir
+VOCAB_SIZE = CurrentSetting.vocab_size
 
 OUT = f("experiments/{EXP_NAME}")
 
@@ -248,6 +219,23 @@ def s2_train_transformer_large(train_from=-1, visible_gpus=[]):
         cmd += f(" --train_from {OUT}/models/{EXP_NAME}_step_{train_from}.pt")
     run_cmd(cmd)
 
+def s2_train_persona_rnn(train_from=-1, visible_gpus=[], uid_vocab_size=0, uid_emb_size=0):
+    print("Step 2: Train")
+    CUDA_VISIBLE_str, GPU_PARAMS_str = _get_gpu_params(visible_gpus)
+    cmd = f("{CUDA_VISIBLE_str} python {ONMT}/train.py --data {OUT}/data/processed "
+        "--save_model {OUT}/models/{EXP_NAME} "
+        "--word_vec_size 500 --encoder_type brnn --decoder_type rnn --layers 2 --rnn_size 1024 "
+        "--dropout 0.3 --batch_size 64 "
+        "--uid_vocab_size {uid_vocab_size} --uid_embedding_size {uid_emb_size} "
+        "--train_steps 10000000 --start_decay_steps 10000000 --decay_steps 10000000 "
+        "--optim sgd --learning_rate 1 --learning_rate_decay 0.5 --max_grad_norm 5 "
+        "--valid_steps 5000 -save_checkpoint_steps 5000 --keep_checkpoint 5 "
+        "{GPU_PARAMS_str} "
+        "--tensorboard_log_dir {OUT}/log --log_file {OUT}/log/log_file.txt")
+    if train_from > 0:
+        cmd += f(" --train_from {OUT}/models/{EXP_NAME}_step_{train_from}.pt")
+    run_cmd(cmd)
+
 def s2_train_persona_transformer_large(train_from=-1, visible_gpus=[], uid_vocab_size=0, uid_emb_size=0):
     print("Step 2: Train")
     CUDA_VISIBLE_str, GPU_PARAMS_str = _get_gpu_params(visible_gpus)
@@ -316,9 +304,9 @@ if __name__ == '__main__':
     #s1b_preprocess()
     #preprocess_persona()
     #remove_log_file()
-    #s2_train()
+    s2_train_persona_rnn(visible_gpus=visible_gpus, uid_vocab_size=2789420, uid_emb_size=10)
     #s2_train_transformer_large(train_from=-1, visible_gpus=visible_gpus)
-    s2_train_persona_transformer_large(train_from=-1, visible_gpus=visible_gpus, uid_vocab_size=2789420, uid_emb_size=32)
+    #s2_train_persona_transformer_large(train_from=-1, visible_gpus=visible_gpus, uid_vocab_size=2789420, uid_emb_size=32)
     #s3_translate_test(model_step=28000)
     #s3_translate_test_interactive(model_step=28000)
     #s3_translate_valid(model_step=160000)

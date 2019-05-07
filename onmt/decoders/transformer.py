@@ -205,7 +205,7 @@ class TransformerDecoder(DecoderBase):
             uid_emb_batch = uid_emb_batch.unsqueeze(0).repeat(tgt_len, 1, 1) # [len, batch, uid_emb_dim]
             emb = torch.cat((emb, uid_emb_batch), dim=-1)
             if self.uid_emb_concat_type == "mlp":
-                emb = self.uid_mlp(emb)
+                emb = self.uid_mlp(emb) # [len, batch, embedding_dim]
 
         output = emb.transpose(0, 1).contiguous()
         src_memory_bank = memory_bank.transpose(0, 1).contiguous()

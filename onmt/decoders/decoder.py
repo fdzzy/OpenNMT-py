@@ -84,7 +84,8 @@ class RNNDecoderBase(DecoderBase):
                  hidden_size, attn_type="general", attn_func="softmax",
                  coverage_attn=False, context_gate=None,
                  copy_attn=False, dropout=0.0, embeddings=None,
-                 reuse_copy_attn=False, copy_attn_type="general"):
+                 reuse_copy_attn=False, copy_attn_type="general",
+                 uid_vocab_size=0, uid_embedding_size=0, uid_emb_concat_type="mlp"):
         super(RNNDecoderBase, self).__init__(
             attentional=attn_type != "none" and attn_type is not None)
 
@@ -93,6 +94,13 @@ class RNNDecoderBase(DecoderBase):
         self.hidden_size = hidden_size
         self.embeddings = embeddings
         self.dropout = nn.Dropout(dropout)
+
+        if uid_vocab_size > 0 and uid_embedding_size > 0:
+            self.uid_emb_concat_type = uid_emb_concat_type
+            self.uid_embedding = nn.Embedding(uid_vocab_size, uid_embedding_size, padding_idx=None)
+            #TODO: maybe consider "concat" as well
+            if self.uid_emb_concat_type == "mlp":
+                self.uid_mlp = nn.Sequential(nn.Linear(self.embeddings.embedding_size + uid_embedding_size, self.embeddings.embedding_size), nn.ReLU())
 
         # Decoder state
         self.state = {}
@@ -154,7 +162,9 @@ class RNNDecoderBase(DecoderBase):
             opt.dropout,
             embeddings,
             opt.reuse_copy_attn,
-            opt.copy_attn_type)
+            opt.copy_attn_type,
+            opt.uid_vocab_size,
+            opt.uid_embedding_size)
 
     def init_state(self, src, memory_bank, encoder_final):
         """Initialize decoder state with last state of the encoder."""
@@ -189,7 +199,7 @@ class RNNDecoderBase(DecoderBase):
         self.state["hidden"] = tuple(h.detach() for h in self.state["hidden"])
         self.state["input_feed"] = self.state["input_feed"].detach()
 
-    def forward(self, tgt, memory_bank, memory_lengths=None, step=None):
+    def forward(self, tgt, memory_bank, memory_lengths=None, step=None, **kwargs):
         """
         Args:
             tgt (LongTensor): sequences of padded tokens
@@ -209,7 +219,7 @@ class RNNDecoderBase(DecoderBase):
         """
 
         dec_state, dec_outs, attns = self._run_forward_pass(
-            tgt, memory_bank, memory_lengths=memory_lengths)
+            tgt, memory_bank, memory_lengths=memory_lengths, **kwargs)
 
         # Update the state with the result.
         if not isinstance(dec_state, tuple):
@@ -350,7 +360,7 @@ class InputFeedRNNDecoder(RNNDecoderBase):
           G --> H
     """
 
-    def _run_forward_pass(self, tgt, memory_bank, memory_lengths=None):
+    def _run_forward_pass(self, tgt, memory_bank, memory_lengths=None, **kwargs):
         """
         See StdRNNDecoder._run_forward_pass() for description
         of arguments and return values.
@@ -358,7 +368,7 @@ class InputFeedRNNDecoder(RNNDecoderBase):
         # Additional args check.
         input_feed = self.state["input_feed"].squeeze(0)
         input_feed_batch, _ = input_feed.size()
-        _, tgt_batch, _ = tgt.size()
+        tgt_len, tgt_batch, _ = tgt.size()
         aeq(tgt_batch, input_feed_batch)
         # END Additional args check.
 
@@ -373,6 +383,15 @@ class InputFeedRNNDecoder(RNNDecoderBase):
 
         emb = self.embeddings(tgt)
         assert emb.dim() == 3  # len x batch x embedding_dim
+
+        #TODO: merge these code into embedding code
+        uid_batch = kwargs.get("uid", None) # [batch]
+        if uid_batch is not None:
+            uid_emb_batch = self.uid_embedding(uid_batch) # [batch, uid_emb_dim]
+            uid_emb_batch = uid_emb_batch.unsqueeze(0).repeat(tgt_len, 1, 1) # [len, batch, uid_emb_dim]
+            emb = torch.cat((emb, uid_emb_batch), dim=-1)
+            if self.uid_emb_concat_type == "mlp":
+                emb = self.uid_mlp(emb) # [len, batch, embedding_dim]
 
         dec_state = self.state["hidden"]
         coverage = self.state["coverage"].squeeze(0) \

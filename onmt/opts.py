@@ -18,7 +18,8 @@ def model_opts(parser):
     These options are passed to the construction of the model.
     Be careful with these as they will be used during translation.
     """
-    parser.add('--persona_model', '-persona_model', action='store_true', help="Whether this is a persona model")
+    # may not be useful
+    #parser.add('--persona_model', '-persona_model', action='store_true', help="Whether this is a persona model")
 
     # Embedding Options
     group = parser.add_argument_group('Model-Embeddings')
