@@ -19,6 +19,7 @@ SETTINGS_LIST = [
     ExperimentSetting("debug_persona_rnn", vocab_size=10000),
     ExperimentSetting("OpenSubTitles_tok_bpe", data_dir="/home/zhiyingz/work/generation/data/OpenNMT_OpenSubtitles/opensub_qa_en", vocab_size=32000),
     ExperimentSetting("twitter_tok_bpe", data_dir="/home/zhiyingz/work/generation/data/twitter", vocab_size=80000),
+    ExperimentSetting("twitter_tok_bpe_cmd_transformer_big"),
     ExperimentSetting("index_bpe", data_dir="/home/zhiyingz/work/generation/data/index"),
     ExperimentSetting("index_bpe_cmd"),
     ExperimentSetting("index_bpe_cmd_transformer_big", data_dir="/home/zhiyingz/work/generation/data/index"),
@@ -26,7 +27,9 @@ SETTINGS_LIST = [
     ExperimentSetting("twitter_tok_bpe_cmd_uid_trans_big")
 ]
 
-EXP_NAME = "debug_persona_rnn"
+#EXP_NAME = "debug_persona"
+#EXP_NAME = "debug_persona_rnn"
+EXP_NAME = "twitter_tok_bpe_cmd_transformer_big"
 #EXP_NAME = "twitter_tok_bpe_cmd_no_uid_trans_big"
 #EXP_NAME = "twitter_tok_bpe_cmd_uid_trans_big"
 
@@ -274,9 +277,9 @@ def s3_translate_test(model_step):
 
 def s3_translate_test_interactive(model_step):
     print("Step 3: Translate test")
-    cmd = f("CUDA_VISIBLE_DEVICES=\"\" python {ONMT}/translate_interactive.py " +
-        "-model {OUT}/models/{EXP_NAME}_step_{model_step}.pt " +
-        "-src {OUT}/data/test.src -replace_unk -verbose " +
+    cmd = f("CUDA_VISIBLE_DEVICES=\"\" python {ONMT}/translate_interactive.py "
+        "-model {OUT}/models/{EXP_NAME}_step_{model_step}.pt "
+        "-src {OUT}/data/test.src -replace_unk --report_time "
         "-n_best 10 --beam_size 20 --block_ngram_repeat 1")
     run_cmd(cmd)
 
@@ -304,11 +307,11 @@ if __name__ == '__main__':
     #s1b_preprocess()
     #preprocess_persona()
     #remove_log_file()
-    s2_train_persona_rnn(visible_gpus=visible_gpus, uid_vocab_size=2789420, uid_emb_size=10)
+    #s2_train_persona_rnn(visible_gpus=visible_gpus, uid_vocab_size=2789420, uid_emb_size=10)
     #s2_train_transformer_large(train_from=-1, visible_gpus=visible_gpus)
-    #s2_train_persona_transformer_large(train_from=-1, visible_gpus=visible_gpus, uid_vocab_size=2789420, uid_emb_size=32)
+    #s2_train_persona_transformer_large(train_from=-1, #visible_gpus=visible_gpus, uid_vocab_size=2789420, uid_emb_size=10)
     #s3_translate_test(model_step=28000)
-    #s3_translate_test_interactive(model_step=28000)
+    s3_translate_test_interactive(model_step='average')
     #s3_translate_valid(model_step=160000)
     #s3_translate_test(model_step=160000)
     #average_models(model_start=905000, model_step=5000, model_count=5)

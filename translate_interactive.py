@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-# TODO: set up an interactive test script
+# TODO: apply bpe
 
 from __future__ import unicode_literals
 from itertools import repeat
@@ -40,61 +40,48 @@ def norm_text(text):
     #norm = spacy_tokenize(norm)
     return norm
 
-def get_model_input(message, min_len=5, max_len=15, question_prob=0.1):
-    #import pdb; pdb.set_trace()
+def detokenize(input):
+    output = input
+    for item in ["'m", ".", "!", ",", "?", "'s", "'re", "n't", "'ve", "'ll"]:
+        output = output.replace(" " + item, item)
+    return output
+
+def prepare_model_input(message, use_cmd=True, min_len=1, max_len=20, question_prob=0.1):
     line = norm_text(message)
-    input_words = line.strip().split()
-    input_word_count = len(input_words)
-    current_min_len = 1 #min_len
-    current_max_len = 20 #min(5 * input_word_count, max_len)
-    #if current_max_len < current_min_len:
-    #    current_max_len = current_min_len
-    len_cmd = "<#len{}#>".format(random.randint(current_min_len, current_max_len))
+    if not use_cmd:
+        return line.strip()
+    
+    len_cmd = "<#len{}#>".format(random.randint(min_len, max_len))
     output = len_cmd + " " + line
     if random.random() < question_prob:
         output = "<#question#> " + output
     return output
 
-def a_very_stupid_first_implementation():
-    tmp_src_file = 'tmp_src.txt'
-    tmp_out_file = 'tmp_out.txt'
-
-    if os.path.exists(tmp_out_file):
-        os.remove(tmp_out_file)
-    f_out_file = codecs.open(tmp_out_file, 'w', 'utf-8')
-    translator = build_translator(opt, report_score=True, out_file=f_out_file)
+def run_model(opt, debug=False):
+    translator = build_translator(opt, report_score=False, out_file=codecs.open(os.devnull, "w", "utf-8"))
     while True:
         message = input("User: ")
-        model_input = get_model_input(message)
-        print("model input: " + model_input)
-        with open(tmp_src_file, 'w') as fw_src:
-            fw_src.write(model_input)
-
-        src_shards = split_corpus(tmp_src_file, opt.shard_size)
-        tgt_shards = repeat(None)
-        shard_pairs = zip(src_shards, tgt_shards)
-        (src_shard, tgt_shard) = next(shard_pairs)
-        translator.translate(
-            src=src_shard,
-            tgt=tgt_shard,
-            src_dir="",
-            batch_size=opt.batch_size,
-            attn_debug=False
-            )
-
-        #with codecs.open(tmp_out_file, 'r', 'utf-8') as fr_out:
-        #    all_out = fr_out.read()
-        #    print(all_out)
-
-        #os.remove(tmp_out_file)
-    f_out_file.close()
+        model_input = prepare_model_input(message)
+        print("Model input: {}".format(model_input))
+        texts_to_translate = [model_input]
+        scores, predictions = translator.translate(
+            texts_to_translate, 
+            batch_size=opt.batch_size
+        )
+        assert len(scores) == 1
+        assert len(predictions) == 1
+        scores, predictions = scores[0], predictions[0]
+        for i, (score, prediction) in enumerate(zip(scores, predictions)):
+            output = "{}: [{:.4f}] \"{}\"".format(i+1, score.item(), detokenize(prediction))
+            if debug:
+                output += " (debug: \"{}\")".format(prediction)
+            print(output)
 
 def main(opt):
     ArgumentParser.validate_translate_opts(opt)
     #logger = init_logger(log_file=None)
 
-    a_very_stupid_first_implementation()
-
+    run_model(opt)
 
 def _get_parser():
     parser = ArgumentParser(description='translate_interactive.py')
@@ -102,7 +89,6 @@ def _get_parser():
     opts.config_opts(parser)
     opts.translate_opts(parser)
     return parser
-
 
 if __name__ == "__main__":
     parser = _get_parser()
