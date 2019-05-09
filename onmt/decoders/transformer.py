@@ -131,6 +131,8 @@ class TransformerDecoder(DecoderBase):
             self.uid_embedding = nn.Embedding(uid_vocab_size, uid_embedding_size, padding_idx=None)
             #TODO: maybe consider "concat" as well
             if self.uid_emb_concat_type == "mlp":
+                self.uid_mlp = nn.Sequential(nn.Linear(uid_embedding_size, self.embeddings.embedding_size), nn.ReLU())
+            elif self.uid_emb_concat_type == "old_mlp":
                 self.uid_mlp = nn.Sequential(nn.Linear(self.embeddings.embedding_size + uid_embedding_size, self.embeddings.embedding_size), nn.ReLU())
 
         # Decoder State
@@ -203,8 +205,11 @@ class TransformerDecoder(DecoderBase):
         if uid_batch is not None:
             uid_emb_batch = self.uid_embedding(uid_batch) # [batch, uid_emb_dim]
             uid_emb_batch = uid_emb_batch.unsqueeze(0).repeat(tgt_len, 1, 1) # [len, batch, uid_emb_dim]
-            emb = torch.cat((emb, uid_emb_batch), dim=-1)
             if self.uid_emb_concat_type == "mlp":
+                uid_emb = self.uid_mlp(uid_emb_batch) # [len, batch, embedding_dim]
+                emb = emb + uid_emb
+            elif self.uid_emb_concat_type == "old_mlp":
+                emb = torch.cat((emb, uid_emb_batch), dim=-1)
                 emb = self.uid_mlp(emb) # [len, batch, embedding_dim]
 
         output = emb.transpose(0, 1).contiguous()
