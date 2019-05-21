@@ -79,6 +79,8 @@ class TranslationBuilder(object):
         tgt = batch.tgt[:, :, 0].index_select(1, perm) \
             if self.has_tgt else None
 
+        uids = batch.uid.index_select(0, perm) if hasattr(batch, "uid") else None
+
         translations = []
         for b in range(batch_size):
             if self._has_text_src:
@@ -103,7 +105,7 @@ class TranslationBuilder(object):
             translation = Translation(
                 src[:, b] if src is not None else None,
                 src_raw, pred_sents, attn[b], pred_score[b],
-                gold_sent, gold_score[b]
+                gold_sent, gold_score[b], None if uids is None else uids[b].item()
             )
             translations.append(translation)
 
@@ -125,10 +127,10 @@ class Translation(object):
     """
 
     __slots__ = ["src", "src_raw", "pred_sents", "attns", "pred_scores",
-                 "gold_sent", "gold_score"]
+                 "gold_sent", "gold_score", "uid"]
 
     def __init__(self, src, src_raw, pred_sents,
-                 attn, pred_scores, tgt_sent, gold_score):
+                 attn, pred_scores, tgt_sent, gold_score, uid=None):
         self.src = src
         self.src_raw = src_raw
         self.pred_sents = pred_sents
@@ -136,6 +138,7 @@ class Translation(object):
         self.pred_scores = pred_scores
         self.gold_sent = tgt_sent
         self.gold_score = gold_score
+        self.uid = uid
 
     def log(self, sent_number):
         """
@@ -143,6 +146,8 @@ class Translation(object):
         """
 
         msg = ['\nSENT {}: {}\n'.format(sent_number, self.src_raw)]
+        if self.uid:
+            msg.append('UID: {}\n'.format(self.uid))
 
         best_pred = self.pred_sents[0]
         best_score = self.pred_scores[0]

@@ -119,9 +119,11 @@ class BeamSearch(DecodeStrategy):
             .fmod(self.beam_size)
 
     def advance(self, log_probs, attn):
+        # joey: log_probs size: [batch_size * beam_size, vocab_size]
         vocab_size = log_probs.size(-1)
 
         # using integer division to get an integer _B without casting
+        # joey: _B is batch_size
         _B = log_probs.shape[0] // self.beam_size
 
         if self._stepwise_cov_pen and self._prev_penalty is not None:
@@ -131,6 +133,7 @@ class BeamSearch(DecodeStrategy):
                 _B, self.beam_size)
 
         # force the output to be longer than self.min_length
+        # joey: len(self) is current prediction length - 1 (because of bos)
         step = len(self)
         self.ensure_min_length(log_probs)
 
@@ -146,16 +149,20 @@ class BeamSearch(DecodeStrategy):
 
         # Flatten probs into a list of possibilities.
         curr_scores = log_probs / length_penalty
+        # joey: after the following line, each line is for one example, containing beam size of predictions
         curr_scores = curr_scores.reshape(_B, self.beam_size * vocab_size)
+        # joey: self.topk_scores size: [batch_size, beam_size], the top beam_size prediction for each example
         torch.topk(curr_scores,  self.beam_size, dim=-1,
                    out=(self.topk_scores, self.topk_ids))
 
         # Recover log probs.
         # Length penalty is just a scalar. It doesn't matter if it's applied
         # before or after the topk.
+        # joey: self.topk_log_probs size: [batch_size, beam_size]
         torch.mul(self.topk_scores, length_penalty, out=self.topk_log_probs)
 
         # Resolve beam origin and map to batch index flat representation.
+        # joey: self._batch_index size: [batch, beam_size], indices from previous beam
         torch.div(self.topk_ids, vocab_size, out=self._batch_index)
         self._batch_index += self._beam_offset[:_B].unsqueeze(1)
         self.select_indices = self._batch_index.view(_B * self.beam_size)
@@ -163,6 +170,7 @@ class BeamSearch(DecodeStrategy):
         self.topk_ids.fmod_(vocab_size)  # resolve true word ids
 
         # Append last prediction.
+        # joey: self.alive_seq size: [batch_size * beam_size, prediction_len], each line is the current sequence of prediction tgt word ids
         self.alive_seq = torch.cat(
             [self.alive_seq.index_select(0, self.select_indices),
              self.topk_ids.view(_B * self.beam_size, 1)], -1)
@@ -199,12 +207,15 @@ class BeamSearch(DecodeStrategy):
 
     def update_finished(self):
         # Penalize beams that finished.
+        # joey: _B_old is the batch_size
         _B_old = self.topk_log_probs.shape[0]
         step = self.alive_seq.shape[-1]  # 1 greater than the step in advance
+        # joey: self.is_finished.size: [batch_size, beam_size]
         self.topk_log_probs.masked_fill_(self.is_finished, -1e10)
         # on real data (newstest2017) with the pretrained transformer,
         # it's faster to not move this back to the original device
         self.is_finished = self.is_finished.to('cpu')
+        # joey: check if the top beam for each example in batch has finished, size: [batch_size]
         self.top_beam_finished |= self.is_finished[:, 0].eq(1)
         predictions = self.alive_seq.view(_B_old, self.beam_size, step)
         attention = (
@@ -213,6 +224,7 @@ class BeamSearch(DecodeStrategy):
             if self.alive_attn is not None else None)
         non_finished_batch = []
         for i in range(self.is_finished.size(0)):
+            # joey: self._batch_offset is just [0, 1, 2, ..., batch_size-1] at first, but may change later...
             b = self._batch_offset[i]
             finished_hyp = self.is_finished[i].nonzero().view(-1)
             # Store finished hypotheses for this batch.
@@ -221,6 +233,7 @@ class BeamSearch(DecodeStrategy):
                     s = self.topk_scores[i, j] / (step + 1)
                     if self.best_scores[b] < s:
                         self.best_scores[b] = s
+                # joey: self.hypotheses result cache is a list of size batch_size, each element is a list of tuples of (log_prob_score, prediction word id sequence, attention)
                 self.hypotheses[b].append((
                     self.topk_scores[i, j],
                     predictions[i, j, 1:],  # Ignore start_token.
@@ -251,7 +264,7 @@ class BeamSearch(DecodeStrategy):
         # If all sentences are translated, no need to go further.
         if len(non_finished) == 0:
             self.done = True
-            return
+            return None
 
         _B_new = non_finished.shape[0]
         # Remove finished batches for the next step.
@@ -263,6 +276,7 @@ class BeamSearch(DecodeStrategy):
                                                                non_finished)
         self._batch_index = self._batch_index.index_select(0, non_finished)
         self.select_indices = self._batch_index.view(_B_new * self.beam_size)
+        # joey: self.alive_seq.size: [B_New, beam_size, prediction_len]
         self.alive_seq = predictions.index_select(0, non_finished) \
             .view(-1, self.alive_seq.size(-1))
         self.topk_scores = self.topk_scores.index_select(0, non_finished)
@@ -279,3 +293,5 @@ class BeamSearch(DecodeStrategy):
                 if self._stepwise_cov_pen:
                     self._prev_penalty = self._prev_penalty.index_select(
                         0, non_finished)
+
+        return non_finished

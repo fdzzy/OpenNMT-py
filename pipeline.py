@@ -1,10 +1,11 @@
 import os
 import codecs
 import sentencepiece as spm
+import pandas as pd
 from ww import f
 
 Encoding = "utf-8"
-ONMT="."
+ONMT = "."
 WORK_DIR = "./experiments"
 
 class ExperimentSetting(object):
@@ -24,14 +25,19 @@ SETTINGS_LIST = [
     ExperimentSetting("index_bpe_cmd"),
     ExperimentSetting("index_bpe_cmd_transformer_big", data_dir="/home/zhiyingz/work/generation/data/index"),
     ExperimentSetting("twitter_tok_bpe_cmd_no_uid_trans_big"),
-    ExperimentSetting("twitter_tok_bpe_cmd_uid_trans_big")
+    ExperimentSetting("twitter_tok_bpe_cmd_uid_trans_big"),
+    ExperimentSetting("twitter_tok_bpe_cmd_uid_trans_big_new_uid_mlp"),
+    ExperimentSetting("twitter_tok_bpe_cmd_uid_trans_big_new_uid_mlp2")
 ]
 
 #EXP_NAME = "debug_persona"
 #EXP_NAME = "debug_persona_rnn"
-EXP_NAME = "twitter_tok_bpe_cmd_transformer_big"
+#EXP_NAME = "twitter_tok_bpe_cmd_transformer_big"
 #EXP_NAME = "twitter_tok_bpe_cmd_no_uid_trans_big"
 #EXP_NAME = "twitter_tok_bpe_cmd_uid_trans_big"
+#EXP_NAME = "twitter_tok_bpe_cmd_uid_trans_big_new_uid_mlp"
+EXP_NAME = "twitter_tok_bpe_cmd_uid_trans_big_new_uid_mlp2"
+#EXP_NAME = "index_bpe_cmd_transformer_big"
 
 
 #====== EXPERIMENT BEGIN ======
@@ -248,7 +254,7 @@ def s2_train_persona_transformer_large(train_from=-1, visible_gpus=[], uid_vocab
         "--share_decoder_embeddings --share_embeddings "
         "-encoder_type transformer -decoder_type transformer -position_encoding -transformer_ff 4096 -heads 16 "
         "-train_steps 10000000 -max_generator_batches 2 -dropout 0.3 "
-        "-batch_size 2000 -batch_type tokens -normalization tokens -accum_count 4 "
+        "-batch_size 1600 -batch_type tokens -normalization tokens -accum_count 4 "
         "-optim adam -adam_beta2 0.997 -decay_method noam -warmup_steps 8000 -learning_rate 2 "
         "-max_grad_norm 0 -param_init 0 -param_init_glorot "
         "-label_smoothing 0.1 -valid_steps 2000 -save_checkpoint_steps 2000 "
@@ -267,6 +273,13 @@ def s3_translate_valid(model_step):
         "-n_best 10 --beam_size 20 --block_ngram_repeat 1 | tee {OUT}/test/valid_beam_10.log")
     run_cmd(cmd)
 
+def s3_translate_persona_valid(model_step):
+    cmd = f("CUDA_VISIBLE_DEVICES=\"\" python {ONMT}/translate_persona.py "
+        "-model {OUT}/models/{EXP_NAME}_step_{model_step}.pt "
+        "-data {OUT}/data/valid.head.txt --has_target -replace_unk -verbose "
+        "-n_best 10 --beam_size 20 --block_ngram_repeat 1 | tee {OUT}/test/valid_beam_10.log")
+    run_cmd(cmd)
+
 def s3_translate_test(model_step):
     print("Step 3: Translate test")
     cmd = f("CUDA_VISIBLE_DEVICES=\"\" python {ONMT}/translate.py " + 
@@ -275,11 +288,24 @@ def s3_translate_test(model_step):
         "-n_best 10 --beam_size 20 --block_ngram_repeat 1 | tee {OUT}/test/test_beam_10.log")
     run_cmd(cmd)
 
+def s3_translate_persona_test(model_step):
+    cmd = f("CUDA_VISIBLE_DEVICES=\"\" python {ONMT}/translate_persona.py "
+        "-model {OUT}/models/{EXP_NAME}_step_{model_step}.pt "
+        "-data {OUT}/data/test.uid.src -replace_unk -verbose "
+        "-n_best 10 --beam_size 20 --block_ngram_repeat 1 | tee {OUT}/test/test_beam_10.log")
+    run_cmd(cmd)
+
 def s3_translate_test_interactive(model_step):
-    print("Step 3: Translate test")
     cmd = f("CUDA_VISIBLE_DEVICES=\"\" python {ONMT}/translate_interactive.py "
         "-model {OUT}/models/{EXP_NAME}_step_{model_step}.pt "
-        "-src {OUT}/data/test.src -replace_unk --report_time "
+        "-replace_unk --report_time "
+        "-n_best 10 --beam_size 20 --block_ngram_repeat 1")
+    run_cmd(cmd)
+
+def s3_translate_persona_test_interactive(model_step, uid):
+    cmd = f("CUDA_VISIBLE_DEVICES=\"\" python {ONMT}/translate_persona_interactive.py "
+        "-model {OUT}/models/{EXP_NAME}_step_{model_step}.pt "
+        "--uid {uid} -replace_unk --report_time "
         "-n_best 10 --beam_size 20 --block_ngram_repeat 1")
     run_cmd(cmd)
 
@@ -298,6 +324,32 @@ def average_models(model_start, model_step, model_count):
         )
     run_cmd(cmd)
 
+def get_average_token_speed():
+    src_speeds = []
+    tgt_speeds = []
+    log_filename = f("{OUT}/log/log_file.txt")
+    print("Checking log file: %s" % log_filename)
+    for line in open(log_filename, "r"):
+        items = line.strip().split(";")
+        if len(items) <= 1:
+            continue
+        for item in items:
+            if item.endswith("tok/s"):
+                tokens = item.strip().split()
+                if len(tokens) != 2:
+                    continue
+                tokens = tokens[0].split("/")
+                if len(tokens) != 2:
+                    continue
+                src_speed = int(tokens[0])
+                tgt_speed = int(tokens[1])
+                src_speeds.append(src_speed)
+                tgt_speeds.append(tgt_speed)
+    print("Source speeds: ")
+    print(pd.Series(src_speeds).describe())
+    print("\nTarget speeds: ")
+    print(pd.Series(tgt_speeds).describe())
+
 if __name__ == '__main__':
     visible_gpus = []#[2,3]
     #s0_sanity_check()
@@ -309,11 +361,15 @@ if __name__ == '__main__':
     #remove_log_file()
     #s2_train_persona_rnn(visible_gpus=visible_gpus, uid_vocab_size=2789420, uid_emb_size=10)
     #s2_train_transformer_large(train_from=-1, visible_gpus=visible_gpus)
-    #s2_train_persona_transformer_large(train_from=-1, #visible_gpus=visible_gpus, uid_vocab_size=2789420, uid_emb_size=10)
-    #s3_translate_test(model_step=28000)
-    s3_translate_test_interactive(model_step='average')
+    #s2_train_persona_transformer_large(train_from=-1, visible_gpus=visible_gpus, uid_vocab_size=2789420, uid_emb_size=10)
+    #s3_translate_test(model_step=5)
     #s3_translate_valid(model_step=160000)
+    #s3_translate_persona_valid(model_step=38000)
     #s3_translate_test(model_step=160000)
+    #s3_translate_persona_test(model_step=38000)
+    #s3_translate_test_interactive(model_step='average')
+    #s3_translate_test_interactive(model_step='average')
+    s3_translate_persona_test_interactive(model_step=38000, uid=247694)
     #average_models(model_start=905000, model_step=5000, model_count=5)
 
 #===== EXPERIMENT END ======

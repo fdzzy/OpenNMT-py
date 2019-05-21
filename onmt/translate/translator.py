@@ -268,7 +268,9 @@ class Translator(object):
             src_dir=None,
             batch_size=None,
             attn_debug=False,
-            phrase_table=""):
+            phrase_table="",
+            persona_model=False,
+            persona_has_target=False):
         """Translate content of ``src`` and get gold scores from ``tgt``.
 
         Args:
@@ -290,15 +292,20 @@ class Translator(object):
         if batch_size is None:
             raise ValueError("batch_size must be set")
 
-        data = inputters.Dataset(
-            self.fields,
-            readers=([self.src_reader, self.tgt_reader]
-                     if tgt else [self.src_reader]),
-            data=[("src", src), ("tgt", tgt)] if tgt else [("src", src)],
-            dirs=[src_dir, None] if tgt else [src_dir],
-            sort_key=inputters.str2sortkey[self.data_type],
-            filter_pred=self._filter_pred
-        )
+        if persona_model:
+            keys = ['src', 'tgt', 'uid'] if persona_has_target else ['src', 'uid']
+            fields = [(key, self.fields[key]) for key in keys]
+            data = inputters.TabularDataset(src, fields, separator='\t')
+        else:
+            data = inputters.Dataset(
+                self.fields,
+                readers=([self.src_reader, self.tgt_reader]
+                        if tgt else [self.src_reader]),
+                data=[("src", src), ("tgt", tgt)] if tgt else [("src", src)],
+                dirs=[src_dir, None] if tgt else [src_dir],
+                sort_key=inputters.str2sortkey[self.data_type],
+                filter_pred=self._filter_pred
+            )
 
         data_iter = inputters.OrderedIterator(
             dataset=data,
@@ -327,7 +334,7 @@ class Translator(object):
 
         for batch in data_iter:
             batch_data = self.translate_batch(
-                batch, data.src_vocabs, attn_debug
+                batch, data.src_vocabs if not persona_model else None, attn_debug
             )
             translations = xlation_builder.from_batch(batch_data)
 
@@ -543,7 +550,8 @@ class Translator(object):
             memory_lengths,
             src_map=None,
             step=None,
-            batch_offset=None):
+            batch_offset=None,
+            uid_batch=None):
         if self.copy_attn:
             # Turn any copied words into UNKs.
             decoder_in = decoder_in.masked_fill(
@@ -555,7 +563,7 @@ class Translator(object):
         # in case of inference tgt_len = 1, batch = beam times batch_size
         # in case of Gold Scoring tgt_len = actual length, batch = 1 batch
         dec_out, dec_attn = self.model.decoder(
-            decoder_in, memory_bank, memory_lengths=memory_lengths, step=step
+            decoder_in, memory_bank, memory_lengths=memory_lengths, step=step, uid=uid_batch
         )
 
         # Generator forward.
@@ -655,6 +663,10 @@ class Translator(object):
             exclusion_tokens=self._exclusion_idxs,
             memory_lengths=memory_lengths)
 
+        # at first step, decoder input size is [batch_size * beam_size]
+        uid_batch = batch.uid if hasattr(batch, "uid") else None
+        uid_batch = tile(uid_batch, beam_size)
+
         for step in range(max_length):
             decoder_input = beam.current_predictions.view(1, -1, 1)
 
@@ -666,14 +678,19 @@ class Translator(object):
                 memory_lengths=memory_lengths,
                 src_map=src_map,
                 step=step,
-                batch_offset=beam._batch_offset)
+                batch_offset=beam._batch_offset,
+                uid_batch=uid_batch)
 
             beam.advance(log_probs, attn)
             any_beam_is_finished = beam.is_finished.any()
             if any_beam_is_finished:
-                beam.update_finished()
+                non_finished = beam.update_finished()
                 if beam.done:
                     break
+                else:
+                    # Get non-finished uid_batch
+                    uid_non_finished = uid_batch.view(-1, beam.beam_size).index_select(0, non_finished)
+                    uid_batch = uid_non_finished.view(-1)
 
             select_indices = beam.current_origin
 
@@ -813,9 +830,12 @@ class Translator(object):
         if words_total == 0:
             msg = "%s No words predicted" % (name,)
         else:
-            msg = ("%s AVG SCORE: %.4f, %s PPL: %.4f" % (
-                name, score_total / words_total,
-                name, math.exp(-score_total / words_total)))
+            try:
+                msg = ("%s AVG SCORE: %.4f, %s PPL: %.4f" % (
+                    name, score_total / words_total,
+                    name, math.exp(-score_total / words_total)))
+            except:
+                msg = ("%s AVG SCORE: %.4f" % (name, score_total / words_total))
         return msg
 
     def _report_bleu(self, tgt_path):

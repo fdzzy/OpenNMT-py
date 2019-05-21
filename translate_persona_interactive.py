@@ -62,11 +62,15 @@ def run_model(opt, debug=False):
     while True:
         message = input("User: ")
         model_input = prepare_model_input(message)
+        if opt.uid >= 0:
+            model_input += "\t{}".format(opt.uid)
         print("Model input: {}".format(model_input))
         texts_to_translate = [model_input]
         scores, predictions = translator.translate(
             texts_to_translate, 
-            batch_size=opt.batch_size
+            batch_size=opt.batch_size,
+            persona_model=True,
+            persona_has_target=False
         )
         assert len(scores) == 1
         assert len(predictions) == 1
@@ -87,7 +91,7 @@ def _get_parser():
     parser = ArgumentParser(description='translate_interactive.py')
 
     opts.config_opts(parser)
-    opts.translate_opts(parser, interative=True)
+    opts.translate_persona_opts(parser, interactive=True)
     return parser
 
 if __name__ == "__main__":
