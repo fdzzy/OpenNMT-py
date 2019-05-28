@@ -1,5 +1,6 @@
 import os
 import codecs
+import torch
 import sentencepiece as spm
 import pandas as pd
 from ww import f
@@ -27,7 +28,9 @@ SETTINGS_LIST = [
     ExperimentSetting("twitter_tok_bpe_cmd_no_uid_trans_big"),
     ExperimentSetting("twitter_tok_bpe_cmd_uid_trans_big"),
     ExperimentSetting("twitter_tok_bpe_cmd_uid_trans_big_new_uid_mlp"),
-    ExperimentSetting("twitter_tok_bpe_cmd_uid_trans_big_new_uid_mlp2")
+    ExperimentSetting("twitter_tok_bpe_cmd_uid_trans_big_new_uid_mlp2"),
+    ExperimentSetting("twitter_tok_bpe_cmd_uid_rnn_plus_emb"),
+    ExperimentSetting("twitter_tok_bpe_cmd_uid_rnn_plus_emb2")
 ]
 
 #EXP_NAME = "debug_persona"
@@ -36,8 +39,10 @@ SETTINGS_LIST = [
 #EXP_NAME = "twitter_tok_bpe_cmd_no_uid_trans_big"
 #EXP_NAME = "twitter_tok_bpe_cmd_uid_trans_big"
 #EXP_NAME = "twitter_tok_bpe_cmd_uid_trans_big_new_uid_mlp"
-EXP_NAME = "twitter_tok_bpe_cmd_uid_trans_big_new_uid_mlp2"
+#EXP_NAME = "twitter_tok_bpe_cmd_uid_trans_big_new_uid_mlp2"
 #EXP_NAME = "index_bpe_cmd_transformer_big"
+#EXP_NAME = "twitter_tok_bpe_cmd_uid_rnn_plus_emb"
+EXP_NAME = "twitter_tok_bpe_cmd_uid_rnn_plus_emb2"
 
 
 #====== EXPERIMENT BEGIN ======
@@ -60,11 +65,18 @@ def run_cmd(cmd):
     if retval != 0:
         raise Exception("Check exceptions!")
 
-def remove_log_file():
+def remove_log_file(remove_tensorboard_folder=True):
     print("removing log file")
     log_file = f("{OUT}/log/log_file.txt")
     if os.path.exists(log_file):
         os.remove(log_file)
+
+    if remove_tensorboard_folder:
+        log_dir = f("{OUT}/log")
+        for item in os.listdir(log_dir):
+            dir_name = os.path.join(log_dir, item)
+            if os.path.isdir(dir_name):
+                run_cmd("rm -rf {}".format(dir_name))
 
 def ensure_exist(path):
     if os.path.exists(path):
@@ -174,7 +186,9 @@ def preprocess_persona():
     cmd = f("python {ONMT}/preprocess_persona.py "
             "--train {OUT}/data/train.txt --valid {OUT}/data/valid.txt "
             "--save_data {OUT}/data/processed --log_file {OUT}/log/preprocess.log "
-            "--words_min_frequency 10 --max_vocab_size 100000"
+            "--words_min_frequency 10 --max_vocab_size 100000 "
+            # uncomment the following line if test no_uid
+            "--no_uid"
         )
     run_cmd(cmd)
 
@@ -233,14 +247,14 @@ def s2_train_persona_rnn(train_from=-1, visible_gpus=[], uid_vocab_size=0, uid_e
     CUDA_VISIBLE_str, GPU_PARAMS_str = _get_gpu_params(visible_gpus)
     cmd = f("{CUDA_VISIBLE_str} python {ONMT}/train.py --data {OUT}/data/processed "
         "--save_model {OUT}/models/{EXP_NAME} "
-        "--word_vec_size 500 --encoder_type brnn --decoder_type rnn --layers 2 --rnn_size 1024 "
-        "--dropout 0.3 --batch_size 64 "
+        "--word_vec_size 1024 --encoder_type brnn --decoder_type rnn --layers 2 --rnn_size 1024 "
+        "--dropout 0.3 --batch_size 150 --share_decoder_embeddings --share_embeddings "
         "--uid_vocab_size {uid_vocab_size} --uid_embedding_size {uid_emb_size} "
         "--train_steps 10000000 --start_decay_steps 10000000 --decay_steps 10000000 "
         "--optim sgd --learning_rate 1 --learning_rate_decay 0.5 --max_grad_norm 5 "
         "--valid_steps 5000 -save_checkpoint_steps 5000 --keep_checkpoint 5 "
         "{GPU_PARAMS_str} "
-        "--tensorboard_log_dir {OUT}/log --log_file {OUT}/log/log_file.txt")
+        "--tensorboard --tensorboard_log_dir {OUT}/log --log_file {OUT}/log/log_file.txt")
     if train_from > 0:
         cmd += f(" --train_from {OUT}/models/{EXP_NAME}_step_{train_from}.pt")
     run_cmd(cmd)
@@ -309,7 +323,7 @@ def s3_translate_persona_test_interactive(model_step, uid):
         "-n_best 10 --beam_size 20 --block_ngram_repeat 1")
     run_cmd(cmd)
 
-def average_models(model_start, model_step, model_count):
+def average_models_old(model_start, model_step, model_count):
     models = []
     model_format = f("{OUT}/models/{EXP_NAME}_step_") + "%d.pt"
     for i in range(model_count):
@@ -323,6 +337,44 @@ def average_models(model_start, model_step, model_count):
             "-output {OUT}/models/{EXP_NAME}_average.pt"
         )
     run_cmd(cmd)
+
+def average_models(model_start, model_step, model_count, to_cpu=True):
+    model_files = []
+    model_format = f("{OUT}/models/{EXP_NAME}_step_%d.pt")
+    for i in range(model_count):
+        model_full_path = model_format % (model_start + i * model_step)
+        if os.path.exists(model_full_path):
+            model_files.append(model_full_path)
+        else:
+            print("WARNING: model file does not exist: %s" % model_full_path)
+    if len(model_files) < 2:
+        raise Exception("only %d valid model exist!" % len(model_files))
+
+    vocab = None
+    opt = None
+    avg_model = None
+    avg_generator = None
+
+    for i, model_file in enumerate(model_files):
+        print("loading file %s" % model_file)
+        m = torch.load(model_file, map_location='cpu') if to_cpu else torch.load(model_file)
+        model_weights = m['model']
+        generator_weights = m['generator']
+
+        if i == 0:
+            vocab, opt = m['vocab'], m['opt']
+            avg_model = model_weights
+            avg_generator = generator_weights
+        else:
+            for (k, v) in avg_model.items():
+                avg_model[k].mul_(i).add_(model_weights[k]).div_(i + 1)
+            for (k, v) in avg_generator.items():
+                avg_generator[k].mul_(i).add_(generator_weights[k]).div_(i + 1)
+    
+    final = {"vocab": vocab, "opt": opt, "optim": None, "generator": avg_generator, "model": avg_model}
+    output_file = f("{OUT}/models/{EXP_NAME}_step_average.pt")
+    print("Saving to %s" % output_file)
+    torch.save(final, output_file)
 
 def get_average_token_speed():
     src_speeds = []
@@ -351,15 +403,15 @@ def get_average_token_speed():
     print(pd.Series(tgt_speeds).describe())
 
 if __name__ == '__main__':
-    visible_gpus = []#[2,3]
+    visible_gpus = [0,1]#[2,3]
     #s0_sanity_check()
     #s0a_ensure_dir_existence()
     #s1a_preprocess_inputs_bpe_merge()
     #s1a_preprocess_inputs_spm_merge()
     #s1b_preprocess()
     #preprocess_persona()
-    #remove_log_file()
-    #s2_train_persona_rnn(visible_gpus=visible_gpus, uid_vocab_size=2789420, uid_emb_size=10)
+    remove_log_file()
+    s2_train_persona_rnn(visible_gpus=visible_gpus, uid_vocab_size=2789420, uid_emb_size=10)
     #s2_train_transformer_large(train_from=-1, visible_gpus=visible_gpus)
     #s2_train_persona_transformer_large(train_from=-1, visible_gpus=visible_gpus, uid_vocab_size=2789420, uid_emb_size=10)
     #s3_translate_test(model_step=5)
@@ -368,8 +420,7 @@ if __name__ == '__main__':
     #s3_translate_test(model_step=160000)
     #s3_translate_persona_test(model_step=38000)
     #s3_translate_test_interactive(model_step='average')
-    #s3_translate_test_interactive(model_step='average')
-    s3_translate_persona_test_interactive(model_step=38000, uid=247694)
-    #average_models(model_start=905000, model_step=5000, model_count=5)
+    #s3_translate_persona_test_interactive(model_step='average', uid=247694)
+    #average_models(model_start=820000, model_step=5000, model_count=5)
 
 #===== EXPERIMENT END ======

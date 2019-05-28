@@ -328,6 +328,8 @@ def preprocess_persona_opts(parser):
                    "shard_size=0 means no segmentation "
                    "shard_size>0 means segment dataset into multiple shards, "
                    "each shard has shard_size samples")
+    group.add('--no_uid', '-no_uid', action='store_true',
+              help="set this flag when there is no uid in the dataset")
 
     # Dictionary options, for text corpus
     group = parser.add_argument_group('Vocab')

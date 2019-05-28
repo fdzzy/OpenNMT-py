@@ -207,7 +207,7 @@ class BeamSearch(DecodeStrategy):
 
     def update_finished(self):
         # Penalize beams that finished.
-        # joey: _B_old is the batch_size
+        # joey: _B_old is the old batch_size
         _B_old = self.topk_log_probs.shape[0]
         step = self.alive_seq.shape[-1]  # 1 greater than the step in advance
         # joey: self.is_finished.size: [batch_size, beam_size]
@@ -224,7 +224,7 @@ class BeamSearch(DecodeStrategy):
             if self.alive_attn is not None else None)
         non_finished_batch = []
         for i in range(self.is_finished.size(0)):
-            # joey: self._batch_offset is just [0, 1, 2, ..., batch_size-1] at first, but may change later...
+            # joey: self._batch_offset is the unfinished indices within batch
             b = self._batch_offset[i]
             finished_hyp = self.is_finished[i].nonzero().view(-1)
             # Store finished hypotheses for this batch.

@@ -116,7 +116,10 @@ class DecodeStrategy(object):
                         fail = True
                     ngrams.add(tuple(gram))
                 if fail:
-                    log_probs[path_idx] = -10e20
+                    # BUG: in some rare cases, all beam candidates for an input are blocked by ngram repeat, resulting in all beam being set to -10e20
+                    #log_probs[path_idx] = -10e20
+                    if log_probs[path_idx][0] > -1e5:
+                        log_probs[path_idx] += -1e5
 
     def advance(self, log_probs, attn):
         """DecodeStrategy subclasses should override :func:`advance()`.

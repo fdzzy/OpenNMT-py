@@ -50,7 +50,8 @@ def build_save_dataset(corpus_type, fields, opt):
         dataset = inputters.TabularDataset(tsv_data_lines, fields, separator='\t')
         input_path = "{:s}.{:s}.{:d}.pt".format(opt.save_data, corpus_type, i)
         output_dataset_paths.append(input_path)
-        uid_set.update([int(example.uid) for example in dataset.examples])
+        if not opt.no_uid:
+            uid_set.update([int(example.uid) for example in dataset.examples])
 
         logger.info(" * saving %sth %s data shard to %s."
                     % (i, corpus_type, input_path))
@@ -62,7 +63,8 @@ def build_save_dataset(corpus_type, fields, opt):
         del dataset
         gc.collect()
 
-    logger.info("{} unique user ids, min: {}, max: {}".format(len(uid_set), min(uid_set), max(uid_set)))
+    if len(uid_set) > 0:
+        logger.info("{} unique user ids, min: {}, max: {}".format(len(uid_set), min(uid_set), max(uid_set)))
 
     return output_dataset_paths
 
@@ -102,7 +104,7 @@ def build_save_vocab(train_dataset_files, fields, opt):
     vocab_path = opt.save_data + '.vocab.pt'
     torch.save(dict(fields), vocab_path)
 
-def get_fields(pad='<blank>', bos='<s>', eos='</s>'):
+def get_fields(pad='<blank>', bos='<s>', eos='</s>', no_uid=False):
     # build fields for the tsv data set
     src_field = Field(include_lengths=True, pad_token=pad, init_token=None, eos_token=None)
     tgt_field = Field(include_lengths=False, pad_token=pad, init_token=bos, eos_token=eos) # set is_target?
@@ -113,7 +115,10 @@ def get_fields(pad='<blank>', bos='<s>', eos='</s>'):
     tgt_multifield = TextMultiField('tgt', tgt_field, feats_fields=[])
 
     #fields = [("src", src_field), ("tgt", tgt_field), ("uid", uid_field)]
-    fields = [("src", src_multifield), ("tgt", tgt_multifield), ("uid", uid_field)]
+    if no_uid:
+        fields = [("src", src_multifield), ("tgt", tgt_multifield)]
+    else:
+        fields = [("src", src_multifield), ("tgt", tgt_multifield), ("uid", uid_field)]
 
     return fields
 
@@ -127,7 +132,7 @@ def main(opt):
     check_existing_pt_files(opt)
 
     init_logger(opt.log_file)
-    fields = get_fields()
+    fields = get_fields(no_uid=opt.no_uid)
 
     logger.info("Building & saving training data...")
     train_dataset_files = build_save_dataset('train', fields, opt)
