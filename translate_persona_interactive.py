@@ -18,55 +18,7 @@ import re
 import codecs
 import nltk
 import random
-
-def nltk_tokenize(sentence):
-    # nltk would turn " into ``, pretty weird behavior, spacy would not
-    tokens = nltk.word_tokenize(sentence)
-    return " ".join(tokens)
-
-invalid_chars_re = re.compile(r'[^a-zA-Z ,\!\.\?0-9\'\$\%]')
-repeat_punct_re = re.compile(r"(!|\.|,|\?|\$|\'){2,}")
-punct_in_words = re.compile(r"([a-zA-Z])(!|\.|,|\?|\$)+([a-zA-Z])")
-use_twitter_filter = True
-def norm_text(text):
-    words = text.split()
-    cmds = []
-    for i, word in enumerate(words):
-        if word.startswith("<#") and word.endswith("#>"):
-            cmds.append(word)
-        else:
-            break
-    text = " ".join(words[i:])
-
-    if use_twitter_filter:
-        text = invalid_chars_re.sub(' ', text)
-        #text = re.sub(r'`', ' ', text)
-        text = repeat_punct_re.sub(r"\1", text)
-        text = punct_in_words.sub(r"\1\2 \3", text)
-    norm = text.lower().strip()
-    norm = " ".join([word for word in norm.split() if word])
-    norm = nltk_tokenize(norm)
-    #norm = spacy_tokenize(norm)
-    return cmds, norm
-
-def detokenize(input):
-    output = input
-    for item in ["'m", ".", "!", ",", "?", "'s", "'re", "n't", "'ve", "'ll", "'d"]:
-        output = output.replace(" " + item, item)
-    return output
-
-def prepare_model_input(message, use_cmd=True, min_len=1, max_len=20, question_prob=0.1):
-    cmds, line = norm_text(message)
-    if not use_cmd:
-        return line.strip()
-    if len(cmds) > 0:
-        return " ".join(cmds) + " " + line.strip()
-    
-    len_cmd = "<#len{}#>".format(random.randint(min_len, max_len))
-    output = len_cmd + " " + line
-    if random.random() < question_prob:
-        output = "<#question#> " + output
-    return output
+from translate_interactive import nltk_tokenize, norm_text, detokenize, prepare_model_input
 
 def run_model(opt, debug=False):
     translator = build_translator(opt, report_score=False, out_file=codecs.open(os.devnull, "w", "utf-8"))

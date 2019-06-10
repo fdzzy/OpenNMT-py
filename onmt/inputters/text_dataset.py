@@ -41,7 +41,6 @@ def text_sort_key(ex):
         return len(ex.src[0]), len(ex.tgt[0])
     return len(ex.src[0])
 
-
 # mix this with partial
 def _feature_tokenize(
         string, layer=0, tok_delim=None, feat_delim=None, truncate=None):
@@ -117,7 +116,7 @@ class TextMultiField(RawField):
         """
 
         # batch (list(list(list))): batch_size x len(self.fields) x seq_len
-        batch_by_feat = list(zip(*batch))
+        batch_by_feat = list(zip(*batch)) # joey: after this, batch_by_feat[i] is the ith feature[i] batch, kind of equivalent to batch.transpose(0, 1) len(self.fields) x batch_size x seq_len
         base_data = self.base_field.process(batch_by_feat[0], device=device)
         if self.base_field.include_lengths:
             # lengths: batch_size

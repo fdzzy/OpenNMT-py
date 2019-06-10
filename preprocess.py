@@ -40,7 +40,7 @@ def build_save_dataset(corpus_type, fields, src_reader, tgt_reader, opt):
 
     logger.info("Reading source and target files: %s %s." % (src, tgt))
 
-    src_shards = split_corpus(src, opt.shard_size)
+    src_shards = split_corpus(src, opt.shard_size) # joey: a generator that generates each time a list of at most shard_size lines of strings
     tgt_shards = split_corpus(tgt, opt.shard_size)
     shard_pairs = zip(src_shards, tgt_shards)
     dataset_paths = []
@@ -51,7 +51,7 @@ def build_save_dataset(corpus_type, fields, src_reader, tgt_reader, opt):
     else:
         filter_pred = None
     for i, (src_shard, tgt_shard) in enumerate(shard_pairs):
-        assert len(src_shard) == len(tgt_shard)
+        assert len(src_shard) == len(tgt_shard) # joey: src_shard is a list of string, the size of the list is at most shard_size
         logger.info("Building shard %d." % i)
         dataset = inputters.Dataset(
             fields,

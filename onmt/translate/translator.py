@@ -667,8 +667,10 @@ class Translator(object):
             memory_lengths=memory_lengths)
 
         # at first step, decoder input size is [batch_size * beam_size]
-        uid_batch = batch.uid if hasattr(batch, "uid") else None
-        uid_batch = tile(uid_batch, beam_size)
+        uid_batch = None
+        if hasattr(batch, "uid"):
+            uid_batch = batch.uid
+            uid_batch = tile(uid_batch, beam_size)
 
         for step in range(max_length):
             decoder_input = beam.current_predictions.view(1, -1, 1)
@@ -691,9 +693,10 @@ class Translator(object):
                 if beam.done:
                     break
                 else:
-                    # Get non-finished uid_batch
-                    uid_non_finished = uid_batch.view(-1, beam.beam_size).index_select(0, non_finished)
-                    uid_batch = uid_non_finished.view(-1)
+                    if uid_batch is not None:
+                        # Get non-finished uid_batch
+                        uid_non_finished = uid_batch.view(-1, beam.beam_size).index_select(0, non_finished)
+                        uid_batch = uid_non_finished.view(-1)
 
             select_indices = beam.current_origin
 

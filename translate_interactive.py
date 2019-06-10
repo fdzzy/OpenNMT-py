@@ -29,6 +29,15 @@ repeat_punct_re = re.compile(r"(!|\.|,|\?|\$|\'){2,}")
 punct_in_words = re.compile(r"([a-zA-Z])(!|\.|,|\?|\$)+([a-zA-Z])")
 use_twitter_filter = True
 def norm_text(text):
+    words = text.split()
+    cmds = []
+    for i, word in enumerate(words):
+        if word.startswith("<#") and word.endswith("#>"):
+            cmds.append(word)
+        else:
+            break
+    text = " ".join(words[i:])
+
     if use_twitter_filter:
         text = invalid_chars_re.sub(' ', text)
         #text = re.sub(r'`', ' ', text)
@@ -38,18 +47,20 @@ def norm_text(text):
     norm = " ".join([word for word in norm.split() if word])
     norm = nltk_tokenize(norm)
     #norm = spacy_tokenize(norm)
-    return norm
+    return cmds, norm
 
 def detokenize(input):
     output = input
-    for item in ["'m", ".", "!", ",", "?", "'s", "'re", "n't", "'ve", "'ll"]:
+    for item in ["'m", ".", "!", ",", "?", "'s", "'re", "n't", "'ve", "'ll", "'d"]:
         output = output.replace(" " + item, item)
     return output
 
 def prepare_model_input(message, use_cmd=True, min_len=1, max_len=20, question_prob=0.1):
-    line = norm_text(message)
+    cmds, line = norm_text(message)
     if not use_cmd:
         return line.strip()
+    if len(cmds) > 0:
+        return " ".join(cmds) + " " + line.strip()
     
     len_cmd = "<#len{}#>".format(random.randint(min_len, max_len))
     output = len_cmd + " " + line

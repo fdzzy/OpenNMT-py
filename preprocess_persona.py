@@ -107,14 +107,13 @@ def build_save_vocab(train_dataset_files, fields, opt):
 def get_fields(pad='<blank>', bos='<s>', eos='</s>', no_uid=False):
     # build fields for the tsv data set
     src_field = Field(include_lengths=True, pad_token=pad, init_token=None, eos_token=None)
-    tgt_field = Field(include_lengths=False, pad_token=pad, init_token=bos, eos_token=eos) # set is_target?
+    tgt_field = Field(include_lengths=False, pad_token=pad, init_token=bos, eos_token=eos)
     uid_field = Field(sequential=False, use_vocab=False, include_lengths=False, dtype=torch.long) # no need to set tokenizer for non-sequential field
     
     # Encapsulate the field into TextMultiField, to be compatible with OpenNMT-py
     src_multifield = TextMultiField('src', src_field, feats_fields=[])
     tgt_multifield = TextMultiField('tgt', tgt_field, feats_fields=[])
 
-    #fields = [("src", src_field), ("tgt", tgt_field), ("uid", uid_field)]
     if no_uid:
         fields = [("src", src_multifield), ("tgt", tgt_multifield)]
     else:

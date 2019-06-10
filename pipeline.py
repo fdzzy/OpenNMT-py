@@ -30,7 +30,11 @@ SETTINGS_LIST = [
     ExperimentSetting("twitter_tok_bpe_cmd_uid_trans_big_new_uid_mlp"),
     ExperimentSetting("twitter_tok_bpe_cmd_uid_trans_big_new_uid_mlp2"),
     ExperimentSetting("twitter_tok_bpe_cmd_uid_rnn_plus_emb"),
-    ExperimentSetting("twitter_tok_bpe_cmd_uid_rnn_plus_emb2")
+    ExperimentSetting("twitter_tok_bpe_cmd_uid_rnn_plus_emb2"),
+    ExperimentSetting("twitter_tok_bpe_cmd_trans_big_ft_aus"),
+    ExperimentSetting("index_bpe_cmd_trans_big_ft_aus"),
+    ExperimentSetting("index_bpe_cmd_trans_tall"),
+    ExperimentSetting("index_bpe_cmd_trans_taller"),
 ]
 
 #EXP_NAME = "debug_persona"
@@ -42,7 +46,11 @@ SETTINGS_LIST = [
 #EXP_NAME = "twitter_tok_bpe_cmd_uid_trans_big_new_uid_mlp2"
 #EXP_NAME = "index_bpe_cmd_transformer_big"
 #EXP_NAME = "twitter_tok_bpe_cmd_uid_rnn_plus_emb"
-EXP_NAME = "twitter_tok_bpe_cmd_uid_rnn_plus_emb2"
+#EXP_NAME = "twitter_tok_bpe_cmd_uid_rnn_plus_emb2"
+#EXP_NAME = "twitter_tok_bpe_cmd_trans_big_ft_aus"
+#EXP_NAME = "index_bpe_cmd_trans_big_ft_aus"
+EXP_NAME = "index_bpe_cmd_trans_tall"
+#EXP_NAME = "index_bpe_cmd_trans_taller"
 
 
 #====== EXPERIMENT BEGIN ======
@@ -167,18 +175,31 @@ def s1a_preprocess_inputs_spm_merge():
         print(f("Applying spm to {input}"))
         _apply_spm(sp, input, output)
 
-def s1b_preprocess():
+def preprocess():
     print("Step 1b: Preprocess")
-    cmd = f("python {ONMT}/preprocess.py " +
-            "-train_src {OUT}/data/train.src " +
-            "-train_tgt {OUT}/data/train.tgt " +
-            "-valid_src {OUT}/data/valid.src " +
-            "-valid_tgt {OUT}/data/valid.tgt " +
-            "-save_data {OUT}/data/processed " +
+    cmd = f("python {ONMT}/preprocess.py "
+            "-train_src {OUT}/data/train.src "
+            "-train_tgt {OUT}/data/train.tgt "
+            "-valid_src {OUT}/data/valid.src "
+            "-valid_tgt {OUT}/data/valid.tgt "
+            "-save_data {OUT}/data/processed "
             "--log_file {OUT}/log/preprocess.log "
-            "--src_words_min_frequency 10 --tgt_words_min_frequency 10 " +
-            "--src_vocab_size 100000 --tgt_vocab_size 100000 " +
+            "--src_words_min_frequency 10 --tgt_words_min_frequency 10 "
+            "--src_vocab_size 100000 --tgt_vocab_size 100000 "
             "--share_vocab"
+        )
+    run_cmd(cmd)
+
+def preprocess_with_existing_vocab():
+    # for fine-tune corpus
+    cmd = f("python {ONMT}/preprocess.py "
+            "-train_src {OUT}/data/train.src "
+            "-train_tgt {OUT}/data/train.tgt "
+            "-valid_src {OUT}/data/valid.src "
+            "-valid_tgt {OUT}/data/valid.tgt "
+            "-save_data {OUT}/data/processed "
+            "--log_file {OUT}/log/preprocess.log "
+            "--src_vocab {OUT}/data/existing_vocab.pt"
         )
     run_cmd(cmd)
 
@@ -205,6 +226,20 @@ def _get_gpu_params(visible_gpus):
     
     return CUDA_VISIBLE_str, GPU_PARAMS_str
 
+def common_train_params(train_from):
+    log_dir_root = f("{OUT}/log")
+    if train_from > 0:
+        tensorboard_dir = log_dir_root
+        for item in os.listdir(log_dir_root):
+            if os.path.isdir(os.path.join(log_dir_root, item)):
+                tensorboard_dir = os.path.join(log_dir_root, item)
+                break
+        cmd = f(" --train_from {OUT}/models/{EXP_NAME}_step_{train_from}.pt "
+            "--tensorboard --tensorboard_log_dir {tensorboard_dir} --log_file {log_dir_root}/log_file.txt ")
+    else:
+        cmd = f(" --tensorboard --tensorboard_log_dir {log_dir_root} --log_file {log_dir_root}/log_file.txt ")
+    return cmd
+
 def s2_train(train_from=-1, visible_gpus=[]):
     print("Step 2: Train")
     CUDA_VISIBLE_str, GPU_PARAMS_str = _get_gpu_params(visible_gpus)
@@ -217,29 +252,96 @@ def s2_train(train_from=-1, visible_gpus=[]):
         "-optim adam -adam_beta2 0.998 -decay_method noam -warmup_steps 8000 -learning_rate 2 " +
         "-max_grad_norm 0 -param_init 0 -param_init_glorot "
         "-label_smoothing 0.1 -valid_steps 5000 -save_checkpoint_steps 5000 " +
-        "{GPU_PARAMS_str} " +
-        "--tensorboard_log_dir {OUT}/log --log_file {OUT}/log/log_file.txt")
-    if train_from > 0:
-        cmd += f(" --train_from {OUT}/models/{EXP_NAME}_step_{train_from}.pt")
+        "{GPU_PARAMS_str} ")
+    cmd += common_train_params(train_from=train_from)
     run_cmd(cmd)
 
 def s2_train_transformer_large(train_from=-1, visible_gpus=[]):
     print("Step 2: Train")
     CUDA_VISIBLE_str, GPU_PARAMS_str = _get_gpu_params(visible_gpus)
-    cmd = f("{CUDA_VISIBLE_str} python {ONMT}/train.py -data {OUT}/data/processed " +
-        "-save_model {OUT}/models/{EXP_NAME} --master_ip localhost --master_port 10012 " +
-        "--keep_checkpoint 5 --layers 6 --rnn_size 1024 -word_vec_size 1024 " +
-        "--share_decoder_embeddings --share_embeddings " +
-        "-encoder_type transformer -decoder_type transformer -position_encoding -transformer_ff 4096 -heads 16 " +
-        "-train_steps 10000000 -max_generator_batches 2 -dropout 0.3 " +
-        "-batch_size 2000 -batch_type tokens -normalization tokens -accum_count 4 " +
-        "-optim adam -adam_beta2 0.997 -decay_method noam -warmup_steps 8000 -learning_rate 2 " +
+    cmd = f("{CUDA_VISIBLE_str} python {ONMT}/train.py -data {OUT}/data/processed "
+        "-save_model {OUT}/models/{EXP_NAME} --master_ip localhost --master_port 10012 "
+        "--keep_checkpoint 5 --layers 6 --rnn_size 1024 -word_vec_size 1024 "
+        "--share_decoder_embeddings --share_embeddings "
+        "-encoder_type transformer -decoder_type transformer -position_encoding -transformer_ff 4096 -heads 16 "
+        "-train_steps 10000000 -max_generator_batches 2 -dropout 0.3 "
+        "-batch_size 2000 -batch_type tokens -normalization tokens -accum_count 4 "
+        "-optim adam -adam_beta2 0.997 -decay_method noam -warmup_steps 8000 -learning_rate 2 "
         "-max_grad_norm 0 -param_init 0 -param_init_glorot "
-        "-label_smoothing 0.1 -valid_steps 2000 -save_checkpoint_steps 2000 " +
-        "{GPU_PARAMS_str} " +
-        "--tensorboard --tensorboard_log_dir {OUT}/log --log_file {OUT}/log/log_file.txt")
-    if train_from > 0:
-        cmd += f(" --train_from {OUT}/models/{EXP_NAME}_step_{train_from}.pt")
+        "-label_smoothing 0.1 -valid_steps 2000 -save_checkpoint_steps 2000 "
+        "{GPU_PARAMS_str} ")
+    cmd += common_train_params(train_from=train_from)
+    run_cmd(cmd)
+
+def s2_train_transformer_tall(train_from=-1, visible_gpus=[]):
+    # number of parameters: 434502573
+    print("Step 2: Train")
+    CUDA_VISIBLE_str, GPU_PARAMS_str = _get_gpu_params(visible_gpus)
+    cmd = f("{CUDA_VISIBLE_str} python {ONMT}/train.py -data {OUT}/data/processed "
+        "-save_model {OUT}/models/{EXP_NAME} --master_ip localhost --master_port 10012 "
+        "--keep_checkpoint 5 --layers 12 --rnn_size 1024 -word_vec_size 1024 "
+        "--share_decoder_embeddings --share_embeddings "
+        "-encoder_type transformer -decoder_type transformer -position_encoding -transformer_ff 4096 -heads 16 "
+        "-train_steps 10000000 -max_generator_batches 2 -dropout 0.3 "
+        "-batch_size 1000 -batch_type tokens -normalization tokens -accum_count 8 "
+        "-optim adam -adam_beta2 0.997 -decay_method noam -warmup_steps 8000 -learning_rate 2 "
+        "-max_grad_norm 0 -param_init 0 -param_init_glorot "
+        "-label_smoothing 0.1 -valid_steps 2000 -save_checkpoint_steps 2000 "
+        "{GPU_PARAMS_str} ")
+    cmd += common_train_params(train_from=train_from)
+    run_cmd(cmd)
+
+def s2_train_transformer_taller(train_from=-1, visible_gpus=[]):
+    # number of parameters: 552074157
+    print("Step 2: Train")
+    CUDA_VISIBLE_str, GPU_PARAMS_str = _get_gpu_params(visible_gpus)
+    cmd = f("{CUDA_VISIBLE_str} python {ONMT}/train.py -data {OUT}/data/processed "
+        "-save_model {OUT}/models/{EXP_NAME} --master_ip localhost --master_port 10011 "
+        "--keep_checkpoint 5 --layers 16 --rnn_size 1024 -word_vec_size 1024 "
+        "--share_decoder_embeddings --share_embeddings "
+        "-encoder_type transformer -decoder_type transformer -position_encoding -transformer_ff 4096 -heads 16 "
+        "-train_steps 10000000 -max_generator_batches 2 -dropout 0.3 "
+        "-batch_size 200 -batch_type tokens -normalization tokens -accum_count 40 "
+        "-optim adam -adam_beta2 0.997 -decay_method noam -warmup_steps 8000 -learning_rate 2 "
+        "-max_grad_norm 0 -param_init 0 -param_init_glorot "
+        "-label_smoothing 0.1 -valid_steps 500 -save_checkpoint_steps 500 "
+        "{GPU_PARAMS_str} ")
+    cmd += common_train_params(train_from=train_from)
+    run_cmd(cmd)
+
+def s2_train_transformer_taller2(train_from=-1, visible_gpus=[]):
+    # number of parameters: 787217325
+    print("Step 2: Train")
+    CUDA_VISIBLE_str, GPU_PARAMS_str = _get_gpu_params(visible_gpus)
+    cmd = f("{CUDA_VISIBLE_str} python {ONMT}/train.py -data {OUT}/data/processed "
+        "-save_model {OUT}/models/{EXP_NAME} --master_ip localhost --master_port 10013 "
+        "--keep_checkpoint 5 --layers 24 --rnn_size 1024 -word_vec_size 1024 "
+        "--share_decoder_embeddings --share_embeddings "
+        "-encoder_type transformer -decoder_type transformer -position_encoding -transformer_ff 4096 -heads 16 "
+        "-train_steps 10000000 -max_generator_batches 2 -dropout 0.3 "
+        "-batch_size 30 -batch_type tokens -normalization tokens -accum_count 266 "
+        "-optim adam -adam_beta2 0.997 -decay_method noam -warmup_steps 8000 -learning_rate 2 "
+        "-max_grad_norm 0 -param_init 0 -param_init_glorot "
+        "-label_smoothing 0.1 -valid_steps 1000 -save_checkpoint_steps 1000 "
+        "{GPU_PARAMS_str} ")
+    cmd += common_train_params(train_from=train_from)
+    run_cmd(cmd)
+
+def s2_train_transformer_large_finetune(train_from="baseline", visible_gpus=[]):
+    print("Step 2: Train")
+    CUDA_VISIBLE_str, GPU_PARAMS_str = _get_gpu_params(visible_gpus)
+    cmd = f("{CUDA_VISIBLE_str} python {ONMT}/train.py -data {OUT}/data/processed "
+        "-save_model {OUT}/models/{EXP_NAME} --master_ip localhost --master_port 10013 "
+        "--keep_checkpoint 5 --layers 6 --rnn_size 1024 -word_vec_size 1024 "
+        "--share_decoder_embeddings --share_embeddings "
+        "-encoder_type transformer -decoder_type transformer -position_encoding -transformer_ff 4096 -heads 16 "
+        "-train_steps 10000000 -max_generator_batches 2 -dropout 0.3 "
+        "-batch_size 2000 -batch_type tokens -normalization tokens -accum_count 4 "
+        "-optim adam -adam_beta2 0.997 -decay_method noam -warmup_steps 1000 -learning_rate 2 "
+        "-max_grad_norm 0 -param_init 0 -param_init_glorot "
+        "-label_smoothing 0.1 -valid_steps 200 -save_checkpoint_steps 200 "
+        "{GPU_PARAMS_str} ")
+    cmd += common_train_params(train_from=train_from)
     run_cmd(cmd)
 
 def s2_train_persona_rnn(train_from=-1, visible_gpus=[], uid_vocab_size=0, uid_emb_size=0):
@@ -253,10 +355,8 @@ def s2_train_persona_rnn(train_from=-1, visible_gpus=[], uid_vocab_size=0, uid_e
         "--train_steps 10000000 --start_decay_steps 10000000 --decay_steps 10000000 "
         "--optim sgd --learning_rate 1 --learning_rate_decay 0.5 --max_grad_norm 5 "
         "--valid_steps 5000 -save_checkpoint_steps 5000 --keep_checkpoint 5 "
-        "{GPU_PARAMS_str} "
-        "--tensorboard --tensorboard_log_dir {OUT}/log --log_file {OUT}/log/log_file.txt")
-    if train_from > 0:
-        cmd += f(" --train_from {OUT}/models/{EXP_NAME}_step_{train_from}.pt")
+        "{GPU_PARAMS_str} ")
+    cmd += common_train_params(train_from=train_from)
     run_cmd(cmd)
 
 def s2_train_persona_transformer_large(train_from=-1, visible_gpus=[], uid_vocab_size=0, uid_emb_size=0):
@@ -273,10 +373,8 @@ def s2_train_persona_transformer_large(train_from=-1, visible_gpus=[], uid_vocab
         "-max_grad_norm 0 -param_init 0 -param_init_glorot "
         "-label_smoothing 0.1 -valid_steps 2000 -save_checkpoint_steps 2000 "
         "{GPU_PARAMS_str} "
-        "--uid_vocab_size {uid_vocab_size} --uid_embedding_size {uid_emb_size} "
-        "--tensorboard --tensorboard_log_dir {OUT}/log --log_file {OUT}/log/log_file.txt")
-    if train_from > 0:
-        cmd += f(" --train_from {OUT}/models/{EXP_NAME}_step_{train_from}.pt")
+        "--uid_vocab_size {uid_vocab_size} --uid_embedding_size {uid_emb_size} ")
+    cmd += common_train_params(train_from=train_from)
     run_cmd(cmd)
 
 def s3_translate_valid(model_step):
@@ -403,16 +501,20 @@ def get_average_token_speed():
     print(pd.Series(tgt_speeds).describe())
 
 if __name__ == '__main__':
-    visible_gpus = [0,1]#[2,3]
+    #visible_gpus = [0,1]#[2,3]
     #s0_sanity_check()
     #s0a_ensure_dir_existence()
     #s1a_preprocess_inputs_bpe_merge()
     #s1a_preprocess_inputs_spm_merge()
-    #s1b_preprocess()
+    #preprocess()
+    #preprocess_with_existing_vocab()
     #preprocess_persona()
-    remove_log_file()
-    s2_train_persona_rnn(visible_gpus=visible_gpus, uid_vocab_size=2789420, uid_emb_size=10)
+    #remove_log_file()
+    #s2_train_persona_rnn(visible_gpus=visible_gpus, uid_vocab_size=2789420, uid_emb_size=10)
     #s2_train_transformer_large(train_from=-1, visible_gpus=visible_gpus)
+    #s2_train_transformer_large_finetune(visible_gpus=[2,3])
+    s2_train_transformer_tall(visible_gpus=[2,3], train_from=118000)
+    #s2_train_transformer_taller(visible_gpus=[0,1])
     #s2_train_persona_transformer_large(train_from=-1, visible_gpus=visible_gpus, uid_vocab_size=2789420, uid_emb_size=10)
     #s3_translate_test(model_step=5)
     #s3_translate_valid(model_step=160000)

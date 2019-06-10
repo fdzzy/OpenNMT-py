@@ -111,6 +111,9 @@ class Dataset(TorchtextDataset):
         self.sort_key = sort_key
         can_copy = 'src_map' in fields and 'alignment' in fields
 
+        # joey: read(self, sequences, side, _dir=None)
+        # dat[1] is src_shard/tgt_shard, dat[0] is side: "src"/"tgt"
+        # return value of read(): yield {side: seq, "indices": i}
         read_iters = [r.read(dat[1], dat[0], dir_) for r, dat, dir_
                       in zip(readers, data, dirs)]
 
@@ -118,6 +121,7 @@ class Dataset(TorchtextDataset):
         self.src_vocabs = []
         examples = []
         for ex_dict in starmap(_join_dicts, zip(*read_iters)):
+            # joey: ex_dict will be a dict of {"src": src_seq, "tgt": tgt_seq, "indices": i}
             if can_copy:
                 src_field = fields['src']
                 tgt_field = fields['tgt']
@@ -127,7 +131,7 @@ class Dataset(TorchtextDataset):
                 self.src_vocabs.append(src_ex_vocab)
             ex_fields = {k: [(k, v)] for k, v in fields.items() if
                          k in ex_dict}
-            ex = Example.fromdict(ex_dict, ex_fields)
+            ex = Example.fromdict(ex_dict, ex_fields) # joey: Equivalent to example.src = src_field.preprocess(src_sequence); and same for tgt
             examples.append(ex)
 
         # fields needs to have only keys that examples have as attrs
