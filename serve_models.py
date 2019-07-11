@@ -22,6 +22,7 @@ import nltk
 import random
 import traceback
 
+from translate_interactive import detokenize
 from tools.apply_bpe import BPE
 import requests
 import urllib.parse
@@ -62,16 +63,13 @@ def norm_text(text):
     #norm = spacy_tokenize(norm)
     return norm
 
-def detokenize(input):
-    output = input
-    for item in ["'m", ".", "!", ",", "?", "'s", "'re", "n't", "'ve", "'ll"]:
-        output = output.replace(" " + item, item)
-    output = output.replace("@@ ", "")
-    return output
-
 def prepare_model_input(message, use_cmd=True, min_len=1, max_len=20, question_prob=0.1):
     line = norm_text(message)
     line = bpe_segmenter.segment(line)
+
+    if not line:
+        return line
+
     if not use_cmd:
         return line.strip()
     
@@ -156,23 +154,34 @@ def generate_response():
     data = {}
 
     try:
-        model_input_cmd = prepare_model_input(curr_q, use_cmd=True, question_prob=0)
-        scores, predictions = translator_twitter_retro_index_cmd.translate([model_input_cmd], batch_size=1)
-        if len(predictions) == 1 and len(predictions[0]) > 1 and predictions[0][0]:
-            data["input1"] = model_input_cmd
-            data["model1"] = detokenize(predictions[0][0])
-        
-        model_input_no_cmd = prepare_model_input(curr_q, use_cmd=False, question_prob=0)
-        scores, predictions = translator_twitter_retro_index_no_cmd.translate([model_input_no_cmd], batch_size=1)
-        if len(predictions) == 1 and len(predictions[0]) > 1 and predictions[0][0]:
-            data["input2"] = model_input_no_cmd
-            data["model2"] = detokenize(predictions[0][0])
+        print("prev_q: \"{}\", prev_a: \"{}\", curr_q: \"{}\"".format(prev_q, prev_a, curr_q))
 
         model_input_cmd = prepare_model_input(curr_q, use_cmd=True, question_prob=0)
-        scores, predictions = translator_convo_index_cmd.translate([model_input_cmd], batch_size=1)
-        if len(predictions) == 1 and len(predictions[0]) > 1 and predictions[0][0]:
-            data["input3"] = model_input_cmd
-            data["model3"] = detokenize(predictions[0][0])
+        data["input4"] = model_input_cmd
+        if not model_input_cmd:
+            data["model4"] = "input is empty" 
+        else:
+            scores, predictions = translator_twitter_retro_index_cmd.translate([model_input_cmd], batch_size=1)
+            if len(predictions) == 1 and len(predictions[0]) > 1 and predictions[0][0]:
+                data["model4"] = detokenize(predictions[0][0])
+        
+        model_input_no_cmd = prepare_model_input(curr_q, use_cmd=False, question_prob=0)
+        data["input3"] = model_input_no_cmd
+        if not model_input_no_cmd:
+            data["model3"] = "input is empty" 
+        else:
+            scores, predictions = translator_twitter_retro_index_no_cmd.translate([model_input_no_cmd], batch_size=1)
+            if len(predictions) == 1 and len(predictions[0]) > 1 and predictions[0][0]:
+                data["model3"] = detokenize(predictions[0][0])
+
+        model_input_cmd = prepare_model_input(curr_q, use_cmd=True, question_prob=0)
+        data["input1"] = model_input_cmd
+        if not model_input_cmd:
+            data["model1"] = "input is empty" 
+        else:
+            scores, predictions = translator_convo_index_cmd.translate([model_input_cmd], batch_size=1)
+            if len(predictions) == 1 and len(predictions[0]) > 1 and predictions[0][0]:
+                data["model1"] = detokenize(predictions[0][0])
 
         url = prod_generative_url + "q={}".format(urllib.parse.quote(curr_q))
         prev_q = prev_q.strip()
@@ -183,7 +192,9 @@ def generate_response():
         response = requests.get(url)
         response.raise_for_status()
         result = response.json()
-        data["model4"] = result["response"]
+        data["model2"] = result["response"]
+
+        print("input1: \"{}\", input3: \"{}\", input4: \"{}\"".format(data["input1"], data["input3"], data["input4"]))
 
         data["success"] = True
     except Exception as e:

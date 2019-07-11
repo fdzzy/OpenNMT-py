@@ -1,4 +1,5 @@
 import os
+import re
 import codecs
 import torch
 import sentencepiece as spm
@@ -35,6 +36,12 @@ SETTINGS_LIST = [
     ExperimentSetting("index_bpe_cmd_trans_big_ft_aus"),
     ExperimentSetting("index_bpe_cmd_trans_tall"),
     ExperimentSetting("index_bpe_cmd_trans_taller"),
+    ExperimentSetting("index_bpe_cmd_trans_big_ft_cornell"),
+    ExperimentSetting("index_bpe_cmd_trans_big_ft_cornell_scifi"),
+    ExperimentSetting("index_bpe_cmd_trans_big_ft_zo"),
+    ExperimentSetting("index_bpe_cmd_trans_big_ft_friends"),
+    ExperimentSetting("index_bpe_cmd_trans_tall_ft_court"),
+    ExperimentSetting("index_bpe_cmd_trans_tall_ft_spongebob"),
 ]
 
 #EXP_NAME = "debug_persona"
@@ -48,9 +55,15 @@ SETTINGS_LIST = [
 #EXP_NAME = "twitter_tok_bpe_cmd_uid_rnn_plus_emb"
 #EXP_NAME = "twitter_tok_bpe_cmd_uid_rnn_plus_emb2"
 #EXP_NAME = "twitter_tok_bpe_cmd_trans_big_ft_aus"
+#EXP_NAME = "index_bpe_cmd_trans_big_ft_zo"
+#EXP_NAME = "index_bpe_cmd_trans_big_ft_friends"
+#EXP_NAME = "index_bpe_cmd_trans_big_ft_cornell"
+#EXP_NAME = "index_bpe_cmd_trans_big_ft_cornell_scifi"
 #EXP_NAME = "index_bpe_cmd_trans_big_ft_aus"
-EXP_NAME = "index_bpe_cmd_trans_tall"
+#EXP_NAME = "index_bpe_cmd_trans_tall"
 #EXP_NAME = "index_bpe_cmd_trans_taller"
+#EXP_NAME = "index_bpe_cmd_trans_tall_ft_court"
+EXP_NAME = "index_bpe_cmd_trans_tall_ft_spongebob"
 
 
 #====== EXPERIMENT BEGIN ======
@@ -228,7 +241,7 @@ def _get_gpu_params(visible_gpus):
 
 def common_train_params(train_from):
     log_dir_root = f("{OUT}/log")
-    if train_from > 0:
+    if train_from is not None:
         tensorboard_dir = log_dir_root
         for item in os.listdir(log_dir_root):
             if os.path.isdir(os.path.join(log_dir_root, item)):
@@ -339,7 +352,24 @@ def s2_train_transformer_large_finetune(train_from="baseline", visible_gpus=[]):
         "-batch_size 2000 -batch_type tokens -normalization tokens -accum_count 4 "
         "-optim adam -adam_beta2 0.997 -decay_method noam -warmup_steps 1000 -learning_rate 2 "
         "-max_grad_norm 0 -param_init 0 -param_init_glorot "
-        "-label_smoothing 0.1 -valid_steps 200 -save_checkpoint_steps 200 "
+        "-label_smoothing 0.1 -valid_steps 200 -save_checkpoint_steps 200 --report_every 10 "
+        "{GPU_PARAMS_str} ")
+    cmd += common_train_params(train_from=train_from)
+    run_cmd(cmd)
+
+def s2_train_transformer_tall_finetune(train_from="baseline", visible_gpus=[]):
+    print("Step 2: Train")
+    CUDA_VISIBLE_str, GPU_PARAMS_str = _get_gpu_params(visible_gpus)
+    cmd = f("{CUDA_VISIBLE_str} python {ONMT}/train.py -data {OUT}/data/processed "
+        "-save_model {OUT}/models/{EXP_NAME} --master_ip localhost --master_port 10013 "
+        "--keep_checkpoint 5 --layers 12 --rnn_size 1024 -word_vec_size 1024 "
+        "--share_decoder_embeddings --share_embeddings "
+        "-encoder_type transformer -decoder_type transformer -position_encoding -transformer_ff 4096 -heads 16 "
+        "-train_steps 10000000 -max_generator_batches 2 -dropout 0.3 "
+        "-batch_size 1000 -batch_type tokens -normalization tokens -accum_count 8 "
+        "-optim adam -adam_beta2 0.997 -decay_method noam -warmup_steps 1000 -learning_rate 2 "
+        "-max_grad_norm 0 -param_init 0 -param_init_glorot "
+        "-label_smoothing 0.1 -valid_steps 200 -save_checkpoint_steps 200 --report_every 10 "
         "{GPU_PARAMS_str} ")
     cmd += common_train_params(train_from=train_from)
     run_cmd(cmd)
@@ -410,8 +440,17 @@ def s3_translate_persona_test(model_step):
 def s3_translate_test_interactive(model_step):
     cmd = f("CUDA_VISIBLE_DEVICES=\"\" python {ONMT}/translate_interactive.py "
         "-model {OUT}/models/{EXP_NAME}_step_{model_step}.pt "
-        "-replace_unk --report_time "
+        #"-replace_unk --report_time "
+        "-replace_unk "
         "-n_best 10 --beam_size 20 --block_ngram_repeat 1")
+    run_cmd(cmd)
+
+def s3_translate_test_interactive_sample_topk(model_step):
+    cmd = f("CUDA_VISIBLE_DEVICES=\"\" python {ONMT}/translate_interactive.py "
+        "-model {OUT}/models/{EXP_NAME}_step_{model_step}.pt "
+        "-replace_unk "
+        "--random_sampling_topk 10 --random_sampling_temp 1 "
+        "--beam_size 1 --block_ngram_repeat 0")
     run_cmd(cmd)
 
 def s3_translate_persona_test_interactive(model_step, uid):
@@ -500,6 +539,70 @@ def get_average_token_speed():
     print("\nTarget speeds: ")
     print(pd.Series(tgt_speeds).describe())
 
+def generate_finetune_dir():
+    root_dir = os.getcwd()
+    work_dir = os.path.join("experiments", EXP_NAME)
+    if not os.path.exists(work_dir):
+        os.mkdir(work_dir)
+    for subdir in ['data', 'log', 'models', 'test']:
+        subdir_full = os.path.join(work_dir, subdir)
+        if not os.path.exists(subdir_full):
+            os.mkdir(subdir_full)
+    os.chdir(os.path.join(root_dir, work_dir, 'data'))
+    if not os.path.exists('existing_vocab.pt'):
+        run_cmd('ln -s ../../index_bpe_cmd_transformer_big/data/processed.vocab.pt existing_vocab.pt')
+    os.chdir(os.path.join(root_dir, work_dir, 'models'))
+    if not os.path.exists(f('{EXP_NAME}_step_baseline.pt')):
+        run_cmd(f('ln -s ../../index_bpe_cmd_trans_tall/models/index_bpe_cmd_trans_tall_step_average.788k.796k.39.18.pt {EXP_NAME}_step_baseline.pt'))
+
+def _get_line_count(infile):
+    return len(codecs.open(infile, 'r', 'utf-8').readlines())
+
+def cut(infile, outfile, fields=[], separator='\t'):
+    if not isinstance(fields, list):
+        fields = [fields]
+    with codecs.open(infile, 'r', 'utf-8') as reader, codecs.open(outfile, 'w', 'utf-8') as writer:
+        for line in reader:
+            items = line.split(separator)
+            if len(items) <= max(fields):
+                continue
+            new_items = [items[i].strip() for i in fields]
+            writer.write(separator.join(new_items) + "\n")
+
+def generate_train_valid(valid_size=5000, infile='processed_data.txt', src_idx=2, tgt_idx=3):
+    work_dir = os.path.join("experiments", EXP_NAME, 'data')
+    print(f("Going into {work_dir}..."))
+    os.chdir(work_dir)
+    run_cmd(f('cat {infile} | shuf > shuf.txt'))
+    line_count = _get_line_count('shuf.txt')
+    print(f("total line count: {line_count}"))
+    train_size = line_count - valid_size
+    run_cmd(f('head -{train_size} shuf.txt >train.txt'))
+    run_cmd(f('tail -{valid_size} shuf.txt >valid.txt'))
+    #src_idx += 1 # convert from 0-based to 1-based
+    #tgt_idx += 1
+    #run_cmd(f(r"cut -f{src_idx} -d$'\t' train.txt >train.src"))
+    #run_cmd(f(r"cut -f{tgt_idx} -d$'\t' train.txt >train.tgt"))
+    #run_cmd(f(r"cut -f{src_idx} -d$'\t' valid.txt >valid.src"))
+    #run_cmd(f(r"cut -f{tgt_idx} -d$'\t' valid.txt >valid.tgt"))
+    cut('train.txt', 'train.src', fields=src_idx)
+    cut('train.txt', 'train.tgt', fields=tgt_idx)
+    cut('valid.txt', 'valid.src', fields=src_idx)
+    cut('valid.txt', 'valid.tgt', fields=tgt_idx)
+    run_cmd(f('rm shuf.txt train.txt valid.txt'))
+
+def remove_cmd():
+    cmd_re = re.compile(r"^\<\#\w+?\#\>")
+    for infile in ['train.src', 'valid.src']:
+        outfile = infile + ".new"
+        infile_full = os.path.join("experiments", EXP_NAME, "data", infile)
+        outfile_full = os.path.join("experiments", EXP_NAME, "data", outfile)
+        print(f("remove command from file {infile_full} to {outfile_full}"))
+        with codecs.open(infile_full, 'r', 'utf-8') as reader, codecs.open(outfile_full, 'w', 'utf-8') as writer:
+            for line in reader:
+                line = cmd_re.sub("", line.strip()).strip()
+                writer.write(line + "\n")
+
 if __name__ == '__main__':
     #visible_gpus = [0,1]#[2,3]
     #s0_sanity_check()
@@ -512,8 +615,9 @@ if __name__ == '__main__':
     #remove_log_file()
     #s2_train_persona_rnn(visible_gpus=visible_gpus, uid_vocab_size=2789420, uid_emb_size=10)
     #s2_train_transformer_large(train_from=-1, visible_gpus=visible_gpus)
-    #s2_train_transformer_large_finetune(visible_gpus=[2,3])
-    s2_train_transformer_tall(visible_gpus=[2,3], train_from=118000)
+    #s2_train_transformer_large_finetune(visible_gpus=[0,1])
+    #s2_train_transformer_tall(visible_gpus=[2,3], train_from=118000)
+    #s2_train_transformer_tall_finetune(visible_gpus=[0,1])
     #s2_train_transformer_taller(visible_gpus=[0,1])
     #s2_train_persona_transformer_large(train_from=-1, visible_gpus=visible_gpus, uid_vocab_size=2789420, uid_emb_size=10)
     #s3_translate_test(model_step=5)
@@ -522,7 +626,13 @@ if __name__ == '__main__':
     #s3_translate_test(model_step=160000)
     #s3_translate_persona_test(model_step=38000)
     #s3_translate_test_interactive(model_step='average')
+    #s3_translate_test_interactive(model_step=1200)
+    #s3_translate_test_interactive(model_step=6400)
+    #s3_translate_test_interactive_sample_topk(model_step='average')
     #s3_translate_persona_test_interactive(model_step='average', uid=247694)
     #average_models(model_start=820000, model_step=5000, model_count=5)
+    #generate_finetune_dir()
+    #generate_train_valid(valid_size=3000)
+    remove_cmd()
 
 #===== EXPERIMENT END ======
